@@ -22,5 +22,12 @@ dependencies = [
 [project.scripts]
 pvc = "pvc.cli:app"
 
+[tool.setuptools.packages.find]
+include = ["pvc*"]
+
 [tool.uv]
 package = true
+dev-dependencies = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

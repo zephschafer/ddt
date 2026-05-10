@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import traceback
+import os
+import re
 from pathlib import Path
 
 import typer
@@ -43,18 +44,17 @@ def _get_catalog() -> str:
 
 @app.command()
 def init(
-    api_key: str = typer.Option("", prompt="PortlandMaps API key (leave blank to use default)", show_default=False),
-    regions: str = typer.Option("", prompt="Valid regions, comma-separated (blank for all)", show_default=False),
     catalog: str = typer.Option("local", prompt="Catalog type (local or gcp)", show_default=True),
 ):
     """Create or update project.yml configuration."""
     cfg = _load_config()
-    if api_key:
-        cfg["portlandmaps_api_key"] = api_key
-    cfg["valid_regions"] = [r.strip() for r in regions.split(",") if r.strip()]
     cfg["catalog"] = catalog
     _save_config(cfg)
     typer.echo(f"Config saved to {_project_root() / 'project.yml'}")
+    typer.echo("\nTo store API keys, add them to project.yml as plain keys:")
+    typer.echo("  my_api_key: sk-xxxx")
+    typer.echo("Then reference them in pipeline YAML: value: \"{{ env.MY_API_KEY }}\"")
+    typer.echo("Or set them as environment variables before running.")
 
 
 # ------------------------------------------------------------------ #
@@ -96,6 +96,14 @@ def run(
 # validate                                                             #
 # ------------------------------------------------------------------ #
 
+def _check_unset_env_refs(path: Path) -> list[str]:
+    """Return sorted list of {{ env.VAR }} references in a YAML file that are not currently set."""
+    raw = path.read_text()
+    refs = re.findall(r"\{\{\s*env\.(\w+)\s*\}\}", raw)
+    cfg = _load_config()
+    return sorted({v for v in refs if not os.environ.get(v) and not cfg.get(v.lower())})
+
+
 @app.command()
 def validate(
     pipeline_name: str = typer.Argument(..., help="Pipeline name (without .yml) or 'all'"),
@@ -107,6 +115,14 @@ def validate(
     if pipeline_name == "all":
         pipelines = load_all_pipelines(pipelines_dir, resolve_env=False)
         names = [p.name for p in pipelines]
+        for path in sorted(pipelines_dir.glob("*.yml")):
+            unset = _check_unset_env_refs(path)
+            if unset:
+                typer.echo(
+                    f"  WARNING '{path.stem}': these env vars are not set: {', '.join(unset)}\n"
+                    f"    Set them as environment variables or add to project.yml before running.",
+                    err=True,
+                )
         typer.echo(f"OK — {len(pipelines)} pipeline(s): {', '.join(names)}")
     else:
         path = pipelines_dir / f"{pipeline_name}.yml"
@@ -114,6 +130,13 @@ def validate(
             typer.echo(f"Pipeline not found: {path}", err=True)
             raise typer.Exit(1)
         pipeline = load_pipeline(path, resolve_env=False)
+        unset = _check_unset_env_refs(path)
+        if unset:
+            typer.echo(
+                f"WARNING: these env vars are referenced but not set: {', '.join(unset)}\n"
+                f"  Set them as environment variables or add to project.yml before running.",
+                err=True,
+            )
         typer.echo(f"OK — '{pipeline.name}' ({len(pipeline.source.params)} params, "
                    f"{len(pipeline.source.iterate)} iterate axes, "
                    f"{len(pipeline.schema_.columns)} columns)")
@@ -188,11 +211,74 @@ def gcp_setup(
         typer.echo(f"  Service account:  {sa_email}")
 
     except Exception as e:
-        gcp.update({"setup_status": "failed", "setup_error": traceback.format_exc()[-2000:]})
+        gcp.update({"setup_status": "failed", "setup_error": str(e)})
         cfg["gcp"] = gcp
         _save_config(cfg)
         typer.echo(f"\nSetup failed: {e}", err=True)
         raise typer.Exit(1)
+
+
+@gcp_app.command("teardown")
+def gcp_teardown(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+):
+    """Destroy GCP lake resources (warehouse bucket, service account, Secret Manager secret)."""
+    from .gcp import bootstrap, terraform
+    from .gcp.gcloud import get_credentials
+
+    cfg = _load_config()
+    gcp = cfg.get("gcp", {})
+
+    if not gcp or gcp.get("setup_status") not in ("complete", "failed"):
+        typer.echo("No completed GCP setup found in project.yml. Nothing to tear down.")
+        return
+
+    project_id = gcp.get("project_id", "")
+    if not yes:
+        typer.confirm(
+            f"This will destroy all GCP resources for project '{project_id}'. Continue?",
+            abort=True,
+        )
+
+    try:
+        credentials = get_credentials()
+    except RuntimeError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
+
+    tf_state_bucket = gcp.get("tf_state_bucket", "")
+    if tf_state_bucket:
+        typer.echo("Running terraform destroy (warehouse bucket)...")
+        try:
+            terraform.destroy(
+                project_id=project_id,
+                region=gcp.get("region", ""),
+                sa_email=gcp.get("sa_email", ""),
+                tf_state_bucket=tf_state_bucket,
+            )
+        except Exception as e:
+            typer.echo(f"  terraform destroy failed (continuing): {e}", err=True)
+
+    secret_name = gcp.get("secret_name", "")
+    if secret_name:
+        typer.echo("Deleting Secret Manager secret...")
+        try:
+            bootstrap.delete_secret(secret_name, credentials)
+        except Exception as e:
+            typer.echo(f"  secret delete failed (continuing): {e}", err=True)
+
+    sa_email = gcp.get("sa_email", "")
+    if sa_email:
+        typer.echo("Deleting service account...")
+        try:
+            bootstrap.delete_service_account(project_id, sa_email, credentials)
+        except Exception as e:
+            typer.echo(f"  service account delete failed (continuing): {e}", err=True)
+
+    cfg.pop("gcp", None)
+    cfg["catalog"] = "local"
+    _save_config(cfg)
+    typer.echo("\nGCP resources destroyed. project.yml reset to catalog: local.")
 
 
 @gcp_app.command("status")

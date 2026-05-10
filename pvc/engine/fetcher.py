@@ -84,7 +84,20 @@ def _fetch_http(source: HttpSource, dynamic_params: dict[str, Any]) -> list[dict
         headers=headers,
         timeout=60,
     )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError:
+        status = response.status_code
+        hint = {
+            401: "Check that your API token or key is correct and has not expired.",
+            403: "Your credentials may lack the required permissions for this endpoint.",
+            404: "The URL may be wrong, or this resource does not exist.",
+            429: "Rate limit exceeded. Add a rate_limit block to your pipeline YAML to slow down requests.",
+        }.get(status, "")
+        msg = f"HTTP {status} from {source.url}"
+        if hint:
+            msg += f" — {hint}"
+        raise requests.HTTPError(msg, response=response)
     return _parse_response(response, source)
 
 

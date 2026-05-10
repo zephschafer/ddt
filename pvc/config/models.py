@@ -17,8 +17,14 @@ class Param(BaseModel):
 
 class Auth(BaseModel):
     type: Literal["query_param", "header", "bearer"]
-    key: str            # param name or header name
-    value: str          # supports "{{ env.VAR }}"
+    key: str | None = None   # param name or header name; unused (and optional) for bearer
+    value: str               # supports "{{ env.VAR }}"
+
+    @model_validator(mode="after")
+    def key_required_for_non_bearer(self) -> "Auth":
+        if self.type in ("query_param", "header") and not self.key:
+            raise ValueError(f"auth.key is required when type is '{self.type}'")
+        return self
 
 
 class RateLimit(BaseModel):

@@ -60,10 +60,15 @@ def write(
     namespace = pipeline.namespace or pipeline.name
     build = pipeline.build
 
-    # GCS incremental: use google-cloud-storage + PyArrow directly, no Spark catalog needed
-    if catalog == "gcp" and build.strategy == "incremental":
+    # GCS: use google-cloud-storage + PyArrow directly for all strategies — no Spark catalog needed
+    if catalog == "gcp":
         warehouse_bucket = _gcs_warehouse_bucket()
-        _upsert_gcs(df, warehouse_bucket, namespace, pipeline.name, build.primary_key)
+        if build.strategy == "incremental":
+            _upsert_gcs(df, warehouse_bucket, namespace, pipeline.name, build.primary_key)
+        elif build.strategy == "append":
+            _append_gcs(df, warehouse_bucket, namespace, pipeline.name)
+        elif build.strategy == "full_refresh":
+            _overwrite_gcs(df, warehouse_bucket, namespace, pipeline.name)
         return
 
     _ensure_namespace(spark, catalog, namespace)
@@ -180,6 +185,56 @@ def _upsert_gcs(
 
     for blob in parquet_blobs:
         blob.delete()
+
+
+def _append_gcs(
+    df: pd.DataFrame,
+    bucket_name: str,
+    namespace: str,
+    table_name: str,
+) -> None:
+    """Append df to GCS by writing a new Parquet file alongside existing ones."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from google.cloud import storage
+
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    prefix = f"{namespace}/{table_name}/data"
+
+    buf = io.BytesIO()
+    pq.write_table(pa.Table.from_pandas(df.copy(), preserve_index=False), buf)
+    buf.seek(0)
+
+    new_blob = bucket.blob(f"{prefix}/{uuid.uuid4()}.parquet")
+    new_blob.upload_from_file(buf, content_type="application/octet-stream")
+
+
+def _overwrite_gcs(
+    df: pd.DataFrame,
+    bucket_name: str,
+    namespace: str,
+    table_name: str,
+) -> None:
+    """Full-refresh: delete all existing Parquet blobs, write a fresh single file."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from google.cloud import storage
+
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    prefix = f"{namespace}/{table_name}/data"
+
+    for blob in bucket.list_blobs(prefix=f"{prefix}/"):
+        if blob.name.endswith(".parquet"):
+            blob.delete()
+
+    buf = io.BytesIO()
+    pq.write_table(pa.Table.from_pandas(df.copy(), preserve_index=False), buf)
+    buf.seek(0)
+
+    new_blob = bucket.blob(f"{prefix}/{uuid.uuid4()}.parquet")
+    new_blob.upload_from_file(buf, content_type="application/octet-stream")
 
 
 def _append(spark, df: pd.DataFrame, table_id: str) -> None:

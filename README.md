@@ -14,6 +14,17 @@ A YAML-driven data ingestion framework for building local Apache Iceberg data la
 - [uv](https://docs.astral.sh/uv/)
 - Java (required by PySpark)
 
+**For GCP cloud lake (`catalog: gcp`) additionally:**
+- [Terraform](https://developer.hashicorp.com/terraform/install) v1.x
+- A GCP project with **billing enabled**
+- `gcloud` CLI authenticated: `gcloud auth application-default login`
+- The following GCP APIs enabled on your project:
+  ```bash
+  gcloud services enable storage.googleapis.com iam.googleapis.com \
+    iamcredentials.googleapis.com secretmanager.googleapis.com \
+    cloudresourcemanager.googleapis.com --project=YOUR_PROJECT_ID
+  ```
+
 ---
 
 ## Creating a pvc project
@@ -91,6 +102,7 @@ uv run pvc validate all
 # GCP cloud lake
 uv run pvc gcp setup --project-id <id> --region us-central1
 uv run pvc gcp status
+uv run pvc gcp teardown                  # destroys all GCP resources, resets to catalog: local
 
 # MCP server (for Claude integration)
 uv run pvc mcp serve
@@ -113,7 +125,7 @@ source:
 
   auth:                    # optional
     type: query_param      # query_param | header | bearer
-    key: api_key
+    key: api_key           # param/header name; omit for bearer (unused)
     value: "{{ env.MY_API_KEY }}"
 
   params:

@@ -11,7 +11,37 @@ Ask the user (or use context already provided):
 - What is the source? (REST API, website to scrape, file, etc.)
 - Do they have API docs or a sample URL?
 
-## 2. Probe the API before writing any code
+## 2. Check credentials
+
+If the API requires authentication, handle this before writing any pipeline YAML:
+
+**Does the API need a key or token?**
+- Check whether the credential already exists: look for it as an environment variable (e.g. `STRIPE_SECRET_KEY`) or in `project.yml` as a lowercase key (e.g. `stripe_secret_key`).
+- If it doesn't exist, tell the user what they need to create and where to find it. Common patterns:
+  - **GitHub PAT:** github.com → Settings → Developer settings → Personal access tokens → Tokens (classic) → generate with needed scopes (e.g. `repo`, `read:org`)
+  - **API key:** typically in the service's developer dashboard or settings page
+  - **Bearer token:** same as API key; used in `Authorization: Bearer <token>` header
+
+**How to store the credential:**
+
+Option 1 — environment variable (preferred for secrets):
+```bash
+export MY_API_KEY=sk-xxxx
+```
+
+Option 2 — `project.yml` (convenient for persistent keys; ensure project.yml is gitignored):
+```yaml
+my_api_key: sk-xxxx
+```
+
+Then reference it in pipeline YAML as `{{ env.MY_API_KEY }}`.
+
+**Auth type to use in the YAML:**
+- `type: bearer` — for `Authorization: Bearer <token>` (GitHub, Stripe, Linear, etc.). The `key` field is optional.
+- `type: header` — for custom header auth (e.g. `X-Api-Key`). Requires `key`.
+- `type: query_param` — for APIs that take the key as a URL param. Requires `key`.
+
+## 3. Probe the API before writing any code
 
 Before designing the pipeline, make a real request to understand the response shape. This determines which source type to use and how the scraper needs to work.
 
@@ -27,11 +57,11 @@ Key questions to answer:
 - Does it require pagination, HTML parsing, or multi-step auth? → `type: python`
 - What fields are available and what are their names exactly?
 
-## 3. Reference existing pipelines
+## 4. Reference existing pipelines
 
 Use `list_pipelines` to see what already exists. Use `get_pipeline` on the most structurally similar one as a reference.
 
-## 4. Choose source type and design the pipeline
+## 5. Choose source type and design the pipeline
 
 **`type: http`** — for REST APIs that return a clean records array (JSON or CSV). pvc constructs the request and parses the response automatically.
 
@@ -67,7 +97,7 @@ Each iterate axis loops over one param. Multiple axes produce a cartesian produc
 
 For `type: python` pipelines that span a date range, pass `start_date` and `end_date` as **static params** (not iterate axes) and let the scraper fetch the full range in one call per iteration. This is simpler than iterating over dates.
 
-## 5. Write the files
+## 6. Write the files
 
 For `type: python` pipelines, write the scraper first so you can test the fetch logic in isolation before wiring it into pvc:
 1. Use `write_connector` to save `connectors/{name}.py`
@@ -75,7 +105,7 @@ For `type: python` pipelines, write the scraper first so you can test the fetch 
 3. Use `write_pipeline` to save `pipelines/{name}.yml`
 4. Run `validate_pipeline` — fix any errors before proceeding
 
-## 6. Test with a small run
+## 7. Test with a small run
 
 Use `run_pipeline` with `limit=1` to run only the first iteration, and small params to limit data volume:
 
@@ -88,7 +118,7 @@ Watch for:
 - Schema projection errors (wrong column paths — check the exact field names from step 2)
 - Write errors
 
-## 7. Verify the data
+## 8. Verify the data
 
 Use `query_warehouse` to confirm the data looks right:
 
@@ -98,7 +128,7 @@ SELECT * FROM my_pipeline.my_pipeline LIMIT 10
 
 Check: are column types sensible? Are values in the expected range? Is the row count what you expected from the test run?
 
-## 8. Run fully and verify dedup
+## 9. Run fully and verify dedup
 
 Run the full pipeline across all iterations:
 
@@ -114,7 +144,7 @@ SELECT COUNT(*) FROM my_pipeline.my_pipeline
 
 If the count grows on re-run, the primary key is not matching correctly — check that the `id` or key field is constructed deterministically (same inputs always produce the same key).
 
-## 9. Done
+## 10. Done
 
 Report:
 - Pipeline name and warehouse table location (`namespace.table`)

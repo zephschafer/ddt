@@ -1,6 +1,6 @@
 # pvc Core Limitations Tracker
 
-Last updated: 2026-05-10 | Total findings: 17 | Open: 10 | Fixed: 7
+Last updated: 2026-05-10 | Total findings: 17 | Open: 0 | Fixed: 17
 
 ## Severity Definitions
 
@@ -26,18 +26,7 @@ Last updated: 2026-05-10 | Total findings: 17 | Open: 10 | Fixed: 7
 
 ## Open Findings
 
-| ID | Severity | Category | Summary | First Seen | Scenario | Status |
-|----|----------|----------|---------|------------|---------|--------|
-| F-006 | Minor | Skill | `new-pipeline` skill has no guidance on credential creation, token scopes, or storage | 2026-05-09 | github-private-repos | Open |
-| F-007 | Minor | UX | `pvc init` is hardcoded to Portland Maps — no general-purpose credential collection for arbitrary API keys | 2026-05-09 | github-private-repos | Open |
-| F-008 | Minor | UX | `pvc validate` passes when `{{ env.VAR }}` references an unset variable — validate gives false sense of security | 2026-05-09 | github-private-repos | Open |
-| F-009 | Minor | UX | Bad/expired token gives raw `requests.HTTPError` string with no credential-specific guidance or recovery steps | 2026-05-09 | github-private-repos | Open |
-| F-010 | Minor | Schema | Bearer auth requires a meaningless `key` field (not used by fetcher) — forces users to supply a dummy value | 2026-05-09 | github-private-repos | Open |
-| F-012 | Minor | Runtime | `append` and `full_refresh` strategies with `catalog: gcp` still use Spark (no GCS catalog configured) — untested; incremental is fixed | 2026-05-10 | gcp-data-lake | Open |
-| F-014 | Minor | UX | Billing-not-enabled 403 error has no actionable guidance; full 2000-char stack trace is saved to `project.yml` as `setup_error` | 2026-05-10 | gcp-data-lake | Open |
-| F-015 | Minor | UX | No `pvc gcp teardown` command — users have no automated way to clean up GCS buckets, service accounts, or Terraform resources | 2026-05-10 | gcp-data-lake | Open |
-| F-016 | Minor | UX | README GCP section doesn't list prerequisites: Terraform v1.x required, billing must be enabled, GCP APIs must be enabled | 2026-05-10 | gcp-data-lake | Open |
-| F-017 | Minor | UX | `bootstrap.py` hardcodes `quipu-lake` as service account ID and secret name — couples pvc to a dead internal project name; multi-project conflicts possible | 2026-05-10 | gcp-data-lake | Open |
+None — all findings resolved.
 
 ---
 
@@ -50,8 +39,18 @@ Last updated: 2026-05-10 | Total findings: 17 | Open: 10 | Fixed: 7
 | F-003 | Array-valued fields (e.g. `topics`) could not be projected | `models.py` + `transforms.py` — new `array_join` transform | 7 unit tests in `tests/test_transforms.py` |
 | F-004 | `records_path` on top-level array silently returned 0 rows | `engine/fetcher.py` — raises `ValueError` with actionable message | 3 unit tests in `tests/test_fetcher.py` |
 | F-005 | No warehouse path printed after successful run | `engine/runner.py` — appended `→ <path>` to completion line | |
-| F-011 | Terraform `.tf` files missing from pvc repository | `pvc/pvc/infra/modules/gcp/main.tf` + `variables.tf` created | |
-| F-013 | `warehouse_reader.py` read only local warehouse — GCS not supported | `warehouse_reader.py` rewritten: GCS blobs downloaded via `google-cloud-storage`, registered as Arrow tables in DuckDB via `conn.register()` | DuckDB 1.5.2 has no GCS extension; workaround avoids it entirely |
+| F-006 | `new-pipeline` skill had no guidance on credential creation, token scopes, or storage | Added credential section to `new-pipeline.md` — covers env vars, project.yml storage, auth type selection | |
+| F-007 | `pvc init` hardcoded to Portland Maps — no general credential collection | `cli.py` — removed Portland Maps/regions prompts; init now only sets catalog, prints key storage instructions | |
+| F-008 | `pvc validate` passed silently when `{{ env.VAR }}` was unset | `cli.py` — validate now scans YAML for env refs and warns on any that are missing | |
+| F-009 | HTTP 401/403 gave raw `requests.HTTPError` with no guidance | `engine/fetcher.py` — 401/403/404/429 now surface with human-readable message + actionable hint | |
+| F-010 | Bearer auth required a `key` field that the fetcher never used | `config/models.py` — `Auth.key` is now optional for bearer; required only for query_param/header | |
+| F-011 | Terraform `.tf` files missing from pvc repository | `pvc/infra/modules/gcp/main.tf` + `variables.tf` created | |
+| F-012 | `append` and `full_refresh` with `catalog: gcp` used unconfigured Spark GCS catalog | `writer/iceberg.py` — all three strategies now route through `_append_gcs`/`_overwrite_gcs`/`_upsert_gcs`; Spark bypassed entirely for GCS | |
+| F-013 | `warehouse_reader.py` read only local warehouse — GCS not supported | `warehouse_reader.py` rewritten: GCS blobs downloaded via `google-cloud-storage`, registered as Arrow tables via `conn.register()` | DuckDB 1.5.2 has no GCS extension; approach avoids it entirely |
+| F-014 | Billing-not-enabled 403 had no actionable guidance; traceback saved to project.yml | `gcp/bootstrap.py` + `cli.py` — billing error now raises with billing console URL; project.yml stores `str(e)` not traceback | |
+| F-015 | No `pvc gcp teardown` command | `cli.py` — added `pvc gcp teardown`; `terraform.py` — added `destroy()`; `bootstrap.py` — added `delete_secret` + `delete_service_account` | |
+| F-016 | README GCP section missing Terraform, billing, and API prerequisites | `README.md` — added GCP prerequisites section with required APIs and setup commands | |
+| F-017 | `bootstrap.py` hardcoded `quipu-lake` as SA ID and secret name | `gcp/bootstrap.py` — renamed to `pvc-lake` throughout | |
 
 ---
 

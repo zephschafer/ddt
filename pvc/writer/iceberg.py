@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import io
 import uuid
 from pathlib import Path
 
@@ -8,6 +9,19 @@ import pandas as pd
 import pytz
 
 from ..config.models import Pipeline, StagingConfig, MergeConfig
+
+
+def _gcs_warehouse_bucket() -> str:
+    import yaml
+    from ..project import find_project_root
+    cfg_file = find_project_root() / "project.yml"
+    cfg = yaml.safe_load(cfg_file.read_text()) if cfg_file.exists() else {}
+    bucket = cfg.get("gcp", {}).get("warehouse_bucket")
+    if not bucket:
+        raise RuntimeError(
+            "GCP warehouse bucket not configured. Run: pvc gcp setup --project-id ... --region ..."
+        )
+    return bucket
 
 
 def _pst_now() -> str:
@@ -44,9 +58,15 @@ def write(
     df["pvc_updated_at"] = _pst_now()
 
     namespace = pipeline.namespace or pipeline.name
-    _ensure_namespace(spark, catalog, namespace)
-
     build = pipeline.build
+
+    # GCS incremental: use google-cloud-storage + PyArrow directly, no Spark catalog needed
+    if catalog == "gcp" and build.strategy == "incremental":
+        warehouse_bucket = _gcs_warehouse_bucket()
+        _upsert_gcs(df, warehouse_bucket, namespace, pipeline.name, build.primary_key)
+        return
+
+    _ensure_namespace(spark, catalog, namespace)
 
     if build.staging:
         _write_staged(spark, pipeline, df, catalog, namespace, build.staging, build.merge, dynamic_params or {})
@@ -113,6 +133,53 @@ def _upsert(df: pd.DataFrame, warehouse_root: Path, namespace: str, table_name: 
 
     for f in existing_files:
         f.unlink()
+
+
+def _upsert_gcs(
+    df: pd.DataFrame,
+    bucket_name: str,
+    namespace: str,
+    table_name: str,
+    primary_key: str | None,
+) -> None:
+    """Upsert df into GCS bucket using google-cloud-storage + PyArrow (no Spark needed)."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from google.cloud import storage
+
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    prefix = f"{namespace}/{table_name}/data"
+
+    parquet_blobs = [
+        b for b in bucket.list_blobs(prefix=f"{prefix}/")
+        if b.name.endswith(".parquet")
+    ]
+
+    df = df.copy()
+    if primary_key:
+        df = df.drop_duplicates(subset=[primary_key])
+
+    if parquet_blobs:
+        existing = pd.concat(
+            [pq.read_table(io.BytesIO(b.download_as_bytes())).to_pandas() for b in parquet_blobs],
+            ignore_index=True,
+        )
+        if primary_key:
+            existing = existing[~existing[primary_key].isin(df[primary_key].values)]
+        merged = pd.concat([existing, df], ignore_index=True)
+    else:
+        merged = df
+
+    buf = io.BytesIO()
+    pq.write_table(pa.Table.from_pandas(merged, preserve_index=False), buf)
+    buf.seek(0)
+
+    new_blob = bucket.blob(f"{prefix}/{uuid.uuid4()}.parquet")
+    new_blob.upload_from_file(buf, content_type="application/octet-stream")
+
+    for blob in parquet_blobs:
+        blob.delete()
 
 
 def _append(spark, df: pd.DataFrame, table_id: str) -> None:

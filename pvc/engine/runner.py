@@ -53,8 +53,13 @@ def run_pipeline(
 
         iceberg_writer.write(spark, pipeline, df, catalog=catalog, dynamic_params=dynamic_params)
 
-    from ..project import find_project_root
     namespace = pipeline.namespace or pipeline.name
-    warehouse_path = find_project_root() / "warehouse" / namespace / pipeline.name / "data"
-    print(f"\n[pvc] '{pipeline.name}' complete → {warehouse_path}\n")
+    if catalog == "gcp":
+        from .. import writer as _w
+        bucket = _w.iceberg._gcs_warehouse_bucket()
+        dest = f"gs://{bucket}/{namespace}/{pipeline.name}/data"
+    else:
+        from ..project import find_project_root
+        dest = str(find_project_root() / "warehouse" / namespace / pipeline.name / "data")
+    print(f"\n[pvc] '{pipeline.name}' complete → {dest}\n")
     spark.stop()

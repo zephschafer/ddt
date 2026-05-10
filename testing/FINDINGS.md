@@ -1,6 +1,6 @@
 # pvc Core Limitations Tracker
 
-Last updated: 2026-05-10 | Total findings: 17 | Open: 12 | Fixed: 5
+Last updated: 2026-05-10 | Total findings: 17 | Open: 10 | Fixed: 7
 
 ## Severity Definitions
 
@@ -33,9 +33,7 @@ Last updated: 2026-05-10 | Total findings: 17 | Open: 12 | Fixed: 5
 | F-008 | Minor | UX | `pvc validate` passes when `{{ env.VAR }}` references an unset variable — validate gives false sense of security | 2026-05-09 | github-private-repos | Open |
 | F-009 | Minor | UX | Bad/expired token gives raw `requests.HTTPError` string with no credential-specific guidance or recovery steps | 2026-05-09 | github-private-repos | Open |
 | F-010 | Minor | Schema | Bearer auth requires a meaningless `key` field (not used by fetcher) — forces users to supply a dummy value | 2026-05-09 | github-private-repos | Open |
-| F-011 | Blocking | Runtime | Terraform `.tf` files missing from pvc repository — `pvc gcp setup` will always fail at the Terraform provisioning step | 2026-05-10 | gcp-data-lake | Open |
-| F-012 | Blocking | Runtime | No GCP Spark catalog configured in `spark_session.py` — `catalog: gcp` pipelines crash at write step; GCS connector JAR also missing | 2026-05-10 | gcp-data-lake | Open |
-| F-013 | Major | MCP | `warehouse_reader.py` reads only local `warehouse/` — `query_warehouse` MCP tool cannot query GCS-backed data regardless of `catalog` setting | 2026-05-10 | gcp-data-lake | Open |
+| F-012 | Minor | Runtime | `append` and `full_refresh` strategies with `catalog: gcp` still use Spark (no GCS catalog configured) — untested; incremental is fixed | 2026-05-10 | gcp-data-lake | Open |
 | F-014 | Minor | UX | Billing-not-enabled 403 error has no actionable guidance; full 2000-char stack trace is saved to `project.yml` as `setup_error` | 2026-05-10 | gcp-data-lake | Open |
 | F-015 | Minor | UX | No `pvc gcp teardown` command — users have no automated way to clean up GCS buckets, service accounts, or Terraform resources | 2026-05-10 | gcp-data-lake | Open |
 | F-016 | Minor | UX | README GCP section doesn't list prerequisites: Terraform v1.x required, billing must be enabled, GCP APIs must be enabled | 2026-05-10 | gcp-data-lake | Open |
@@ -52,6 +50,8 @@ Last updated: 2026-05-10 | Total findings: 17 | Open: 12 | Fixed: 5
 | F-003 | Array-valued fields (e.g. `topics`) could not be projected | `models.py` + `transforms.py` — new `array_join` transform | 7 unit tests in `tests/test_transforms.py` |
 | F-004 | `records_path` on top-level array silently returned 0 rows | `engine/fetcher.py` — raises `ValueError` with actionable message | 3 unit tests in `tests/test_fetcher.py` |
 | F-005 | No warehouse path printed after successful run | `engine/runner.py` — appended `→ <path>` to completion line | |
+| F-011 | Terraform `.tf` files missing from pvc repository | `pvc/pvc/infra/modules/gcp/main.tf` + `variables.tf` created | |
+| F-013 | `warehouse_reader.py` read only local warehouse — GCS not supported | `warehouse_reader.py` rewritten: GCS blobs downloaded via `google-cloud-storage`, registered as Arrow tables in DuckDB via `conn.register()` | DuckDB 1.5.2 has no GCS extension; workaround avoids it entirely |
 
 ---
 

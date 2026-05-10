@@ -49,7 +49,11 @@ def _parse_response(response: requests.Response, source: HttpSource) -> list[dic
         if source.response.records_path:
             for key in source.response.records_path.split("."):
                 if not isinstance(data, dict):
-                    return []
+                    raise ValueError(
+                        f"records_path '{source.response.records_path}' could not be followed: "
+                        f"expected a JSON object at key '{key}' but found {type(data).__name__}. "
+                        f"If the response is a top-level array, omit records_path entirely."
+                    )
                 data = data.get(key, [])
         if isinstance(data, list):
             return data

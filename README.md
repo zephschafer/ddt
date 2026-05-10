@@ -4,6 +4,8 @@ A YAML-driven data ingestion framework for building local Apache Iceberg data la
 
 **pvc is a tool, not a project.** You install it as a dependency in a separate data project repository. See [quipu-data-generator](https://github.com/Data-Dispatch/quipu-data-generator) for a working example.
 
+**New to pvc?** Start with the [quickstart guide](QUICKSTART.md) — a step-by-step walkthrough using a real GitHub pipeline.
+
 ---
 
 ## Requirements

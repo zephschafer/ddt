@@ -1,6 +1,6 @@
 # pvc Core Limitations Tracker
 
-Last updated: 2026-05-10 | Total findings: 29 | Open: 4 | Fixed: 25
+Last updated: 2026-05-11 | Total findings: 31 | Open: 4 | Fixed: 27
 
 ## Severity Definitions
 
@@ -64,6 +64,8 @@ Last updated: 2026-05-10 | Total findings: 29 | Open: 4 | Fixed: 25
 | F-023 | Connector exceptions showed only `fetch error: {e}` — no traceback, no failure summary | `runner.py` — adds exception class, full traceback (indented), and 3-state completion line (complete / complete with errors / FAILED) | `a1041e0` |
 | F-024 | `new-pipeline` skill missing decision guidance on when to use `type: python` vs `type: http` | `new-pipeline.md` — added decision table with GraphQL, cursor pagination, and HTML scraping as explicit python triggers; quick rule of thumb | `11cdd85` |
 | F-025 | `new-pipeline` skill didn't document auth pattern for Python connectors — `PythonSource` has no `auth` field | `new-pipeline.md` — added "auth pattern" section under `type: python` showing how to pass key as static param with `{{ env.VAR }}` and read from `dynamic_params` | |
+| F-030 | `deploy:` block in pipeline YAML silently ignored by `pvc validate` — invalid cron expressions passed without error | `config/models.py` — added `Deploy` model with cron validator; `Pipeline.deploy` optional field; `cli.py` validate now shows clean error on `ValidationError`; also fixed `from_dict` dict-mutation bug | |
+| F-031 | `pvc deploy` and `pvc undeploy` CLI commands did not exist | `cli.py` — added `pvc deploy <name>`, `pvc undeploy <name>`, `pvc deploy-status [<name>]`; `gcp/batch_deploy.py` — orchestration: Cloud Build image, Cloud Run job, Composer DAG upload | |
 
 ---
 

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import re as _re
 from typing import Any, Literal, Annotated, Union
 from pydantic import BaseModel, Field, model_validator
+
+_CRON_FIELD_RE = _re.compile(r'^(\*|[0-9,\-\*/]+)$')
 
 
 # ------------------------------------------------------------------ #
@@ -178,6 +181,26 @@ class Build(BaseModel):
 
 
 # ------------------------------------------------------------------ #
+# Deploy                                                               #
+# ------------------------------------------------------------------ #
+
+class Deploy(BaseModel):
+    schedule: str
+    paused: bool = False
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> "Deploy":
+        parts = self.schedule.strip().split()
+        if len(parts) != 5 or not all(_CRON_FIELD_RE.match(p) for p in parts):
+            raise ValueError(
+                f"deploy.schedule '{self.schedule}' is not a valid cron expression. "
+                "Expected 5 space-separated fields: minute hour day-of-month month day-of-week "
+                "(e.g. '0 8 * * *' for daily at 8 AM UTC)"
+            )
+        return self
+
+
+# ------------------------------------------------------------------ #
 # Pipeline (top-level)                                                 #
 # ------------------------------------------------------------------ #
 
@@ -189,6 +212,7 @@ class Pipeline(BaseModel):
     source: Source
     schema_: Schema
     build: Build
+    deploy: Deploy | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -200,5 +224,6 @@ class Pipeline(BaseModel):
     @classmethod
     def from_dict(cls, data: dict) -> Pipeline:
         if "schema" in data and "schema_" not in data:
-            data = {**data, "schema_": data.pop("schema")}
+            data = {**data, "schema_": data["schema"]}
+            del data["schema"]
         return cls.model_validate(data)

@@ -129,7 +129,17 @@ def validate(
         if not path.exists():
             typer.echo(f"Pipeline not found: {path}", err=True)
             raise typer.Exit(1)
-        pipeline = load_pipeline(path, resolve_env=False)
+        try:
+            pipeline = load_pipeline(path, resolve_env=False)
+        except Exception as e:
+            from pydantic import ValidationError
+            if isinstance(e, ValidationError):
+                for err in e.errors():
+                    loc = ".".join(str(x) for x in err["loc"])
+                    typer.echo(f"Validation error in '{pipeline_name}': {loc} — {err['msg']}", err=True)
+            else:
+                typer.echo(f"Error loading '{pipeline_name}': {e}", err=True)
+            raise typer.Exit(1)
         unset = _check_unset_env_refs(path)
         if unset:
             typer.echo(
@@ -298,6 +308,163 @@ def gcp_status():
     typer.echo(f"Service account:  {gcp.get('sa_email', '-')}")
     if gcp.get("setup_error"):
         typer.echo(f"\nLast error:\n{gcp['setup_error']}", err=True)
+
+
+# ------------------------------------------------------------------ #
+# deploy / undeploy                                                    #
+# ------------------------------------------------------------------ #
+
+def _require_gcp_config() -> tuple[dict, dict]:
+    """Return (full_config, gcp_section). Exits with a clear error if GCP is not ready."""
+    cfg = _load_config()
+    if cfg.get("catalog") != "gcp":
+        typer.echo(
+            "Error: catalog is not 'gcp'. Batch deployment requires a GCP data lake.\n"
+            "  Set catalog: gcp in project.yml or run: pvc init",
+            err=True,
+        )
+        raise typer.Exit(1)
+    gcp = cfg.get("gcp", {})
+    if gcp.get("setup_status") != "complete":
+        typer.echo(
+            "Error: GCP setup is not complete. Run: pvc gcp setup --project-id X --region Y",
+            err=True,
+        )
+        raise typer.Exit(1)
+    for key in ("project_id", "region", "warehouse_bucket", "sa_email"):
+        if not gcp.get(key):
+            typer.echo(f"Error: gcp.{key} is missing from project.yml. Re-run: pvc gcp setup", err=True)
+            raise typer.Exit(1)
+    return cfg, gcp
+
+
+@app.command()
+def deploy(
+    pipeline_name: str = typer.Argument(..., help="Pipeline name (without .yml)"),
+):
+    """Deploy a pipeline as a scheduled batch job on GCP (Composer + Cloud Run)."""
+    from .config import load_pipeline
+    from .gcp import batch_deploy
+
+    path = _pipelines_dir() / f"{pipeline_name}.yml"
+    if not path.exists():
+        typer.echo(f"Pipeline not found: {path}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        pipeline = load_pipeline(path, resolve_env=False)
+    except Exception as e:
+        typer.echo(f"Error loading pipeline: {e}", err=True)
+        raise typer.Exit(1)
+
+    if pipeline.deploy is None:
+        typer.echo(
+            f"Error: '{pipeline_name}' has no 'deploy:' block in its pipeline YAML.\n"
+            "Add a deploy block with a schedule, for example:\n\n"
+            "  deploy:\n"
+            "    schedule: \"0 8 * * *\"\n",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    cfg, gcp = _require_gcp_config()
+
+    typer.echo(f"Deploying '{pipeline_name}' (schedule: {pipeline.deploy.schedule})...")
+    try:
+        state = batch_deploy.deploy(
+            pipeline_name=pipeline_name,
+            schedule=pipeline.deploy.schedule,
+            paused=pipeline.deploy.paused,
+            project_root=_project_root(),
+            gcp_config=gcp,
+        )
+    except Exception as e:
+        typer.echo(f"\nDeploy failed: {e}", err=True)
+        raise typer.Exit(1)
+
+    cfg.setdefault("deployments", {})[pipeline_name] = state
+    _save_config(cfg)
+
+    typer.echo(f"\nDeployed '{pipeline_name}' successfully.")
+    typer.echo(f"  DAG:          {state['dag_id']}")
+    typer.echo(f"  Cloud Run:    {state['cloud_run_job']}")
+    typer.echo(f"  Composer env: {state['composer_env']}")
+    typer.echo(f"  Schedule:     {state['schedule']}")
+
+
+@app.command()
+def undeploy(
+    pipeline_name: str = typer.Argument(..., help="Pipeline name (without .yml)"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+):
+    """Remove a deployed pipeline's Cloud Run job and Composer DAG (warehouse data is untouched)."""
+    from .gcp import batch_deploy
+
+    cfg = _load_config()
+    deployments = cfg.get("deployments", {})
+
+    if pipeline_name not in deployments:
+        typer.echo(
+            f"Error: '{pipeline_name}' is not in project.yml deployments. "
+            "Nothing to undeploy.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    deployment = deployments[pipeline_name]
+    _, gcp = _require_gcp_config()
+
+    if not yes:
+        typer.confirm(
+            f"Remove Cloud Run job '{deployment['cloud_run_job']}' and "
+            f"Composer DAG '{deployment['dag_id']}'? (warehouse data will NOT be deleted)",
+            abort=True,
+        )
+
+    typer.echo(f"Undeploying '{pipeline_name}'...")
+    try:
+        batch_deploy.undeploy(
+            pipeline_name=pipeline_name,
+            deployment=deployment,
+            gcp_config=gcp,
+        )
+    except Exception as e:
+        typer.echo(f"\nUndeploy failed: {e}", err=True)
+        raise typer.Exit(1)
+
+    del cfg["deployments"][pipeline_name]
+    if not cfg["deployments"]:
+        del cfg["deployments"]
+    _save_config(cfg)
+
+    typer.echo(f"'{pipeline_name}' undeployed. Warehouse data is untouched.")
+
+
+@app.command(name="deploy-status")
+def deploy_status(
+    pipeline_name: str | None = typer.Argument(None, help="Pipeline name, or omit for all"),
+):
+    """Show deployment state for one or all pipelines."""
+    cfg = _load_config()
+    deployments = cfg.get("deployments", {})
+
+    if not deployments:
+        typer.echo("No pipelines are currently deployed.")
+        return
+
+    targets = {pipeline_name: deployments[pipeline_name]} if pipeline_name else deployments
+
+    if pipeline_name and pipeline_name not in deployments:
+        typer.echo(f"'{pipeline_name}' is not deployed.", err=True)
+        raise typer.Exit(1)
+
+    for name, state in targets.items():
+        typer.echo(f"\n{name}")
+        typer.echo(f"  Schedule:     {state.get('schedule', '-')}")
+        typer.echo(f"  DAG:          {state.get('dag_id', '-')}")
+        typer.echo(f"  Cloud Run:    {state.get('cloud_run_job', '-')}")
+        typer.echo(f"  Composer env: {state.get('composer_env', '-')}")
+        typer.echo(f"  Deployed at:  {state.get('deployed_at', '-')}")
 
 
 # ------------------------------------------------------------------ #

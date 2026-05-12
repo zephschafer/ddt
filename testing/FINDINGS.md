@@ -1,6 +1,6 @@
 # pvc Core Limitations Tracker
 
-Last updated: 2026-05-12 | Total findings: 33 | Open: 1 | Fixed: 32
+Last updated: 2026-05-12 | Total findings: 35 | Open: 1 | Fixed: 34
 
 ## Severity Definitions
 
@@ -36,6 +36,7 @@ Last updated: 2026-05-12 | Total findings: 33 | Open: 1 | Fixed: 32
 
 | ID | Summary | Fixed In | Notes |
 |----|---------|----------|-------|
+| F-034 | Cloud Run container exited immediately (`JAVA_GATEWAY_EXITED`) because `runner.py` unconditionally started Spark even when `catalog=gcp`; `python:3.12-slim` has no JVM | `engine/runner.py` — GCS path skips Spark init; `spark.stop()` guarded by `if spark is not None` | `0685e72` |
 | F-001 | Spark startup WARN noise obscured pvc output | `spark_session.py` — fd-level stderr redirect + `spark.driver.host=127.0.0.1` | |
 | F-002 | No `namespace` field; namespace always equalled pipeline name | `models.py` + `writer/iceberg.py` — optional `namespace` field with fallback to `pipeline.name` | |
 | F-003 | Array-valued fields (e.g. `topics`) could not be projected | `models.py` + `transforms.py` — new `array_join` transform | 7 unit tests in `tests/test_transforms.py` |

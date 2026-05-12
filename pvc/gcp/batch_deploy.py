@@ -1,8 +1,11 @@
-"""Batch pipeline deployment: builds a container image, creates a Cloud Run job,
-and uploads an Airflow DAG to Cloud Composer."""
+"""Batch pipeline deployment: builds a container image via Cloud Build, then uses
+Terraform to provision a Cloud Run job and upload the Airflow DAG to Composer."""
 
 from __future__ import annotations
 
+import json
+import logging
+import os
 import shutil
 import subprocess
 import tempfile
@@ -12,8 +15,13 @@ from textwrap import dedent
 
 import yaml
 
-_PVC_PKG_DIR = Path(__file__).parent.parent       # pvc/ package
-_PVC_REPO_ROOT = _PVC_PKG_DIR.parent              # repo root (contains pyproject.toml)
+logger = logging.getLogger(__name__)
+
+_PVC_PKG_DIR = Path(__file__).parent.parent          # pvc/ package
+_PVC_REPO_ROOT = _PVC_PKG_DIR.parent                 # repo root (contains pyproject.toml)
+_BATCH_MODULE_DIR = _PVC_PKG_DIR / "infra" / "modules" / "gcp" / "batch_pipeline"
+_PIPELINE_TF_DIR = Path.home() / ".pvc" / "terraform" / "pipelines"
+_TF_PLUGIN_CACHE = Path.home() / ".pvc" / "terraform" / ".plugin-cache"
 
 
 # ------------------------------------------------------------------ #
@@ -27,7 +35,7 @@ def deploy(
     project_root: Path,
     gcp_config: dict,
 ) -> dict:
-    """Provision a Cloud Run job + Composer DAG for a pipeline.
+    """Provision a Cloud Run job + Composer DAG for a pipeline via Terraform.
 
     Returns the deployment state dict to write into project.yml.
     """
@@ -36,7 +44,6 @@ def deploy(
     warehouse_bucket = gcp_config["warehouse_bucket"]
     sa_email = gcp_config["sa_email"]
 
-    job_name = _job_name(pipeline_name)
     dag_id = pipeline_name
     image_uri = _image_uri(project_id, region, pipeline_name)
 
@@ -45,17 +52,33 @@ def deploy(
     _build_image(project_root, project_id, region, pipeline_name,
                  image_uri, warehouse_bucket)
 
-    print(f"  Creating Cloud Run job '{job_name}'...", flush=True)
-    _create_or_update_cloud_run_job(
-        job_name, image_uri, project_id, region, sa_email, pipeline_name,
-    )
-
     print("  Locating Cloud Composer environment...", flush=True)
-    composer_env_name, dag_bucket = _find_or_create_composer_env(project_id, region, sa_email)
+    composer_env_name, dag_gcs_prefix = _find_or_create_composer_env(
+        project_id, region, sa_email
+    )
     print(f"  Using Composer environment: {composer_env_name}", flush=True)
 
-    print(f"  Uploading DAG '{dag_id}' to Composer...", flush=True)
-    _upload_dag(dag_id, job_name, schedule, paused, project_id, region, dag_bucket)
+    dag_bucket, dag_blob_name = _parse_dag_path(dag_gcs_prefix, pipeline_name)
+    dag_py = _dag_content(
+        dag_id=dag_id,
+        job_name=_expected_job_name(pipeline_name),
+        schedule=schedule,
+        paused=paused,
+        project_id=project_id,
+        region=region,
+    )
+
+    print("  Applying Terraform (Cloud Run job + DAG)...", flush=True)
+    job_name = _terraform_apply_pipeline(
+        pipeline_name=pipeline_name,
+        image_uri=image_uri,
+        sa_email=sa_email,
+        dag_bucket=dag_bucket,
+        dag_blob_name=dag_blob_name,
+        dag_content=dag_py,
+        project_id=project_id,
+        region=region,
+    )
 
     return {
         "schedule": schedule,
@@ -68,26 +91,12 @@ def deploy(
 
 
 def undeploy(pipeline_name: str, deployment: dict, gcp_config: dict) -> None:
-    """Remove the Cloud Run job and Composer DAG for a deployed pipeline."""
+    """Remove the Cloud Run job and Composer DAG via Terraform destroy."""
     project_id = gcp_config["project_id"]
     region = gcp_config["region"]
-    job_name = deployment["cloud_run_job"]
-    dag_id = deployment["dag_id"]
-    composer_env = deployment.get("composer_env", "")
 
-    if composer_env:
-        print(f"  Removing Composer DAG '{dag_id}'...")
-        try:
-            dag_bucket = _describe_composer_dag_bucket(composer_env, project_id, region)
-            _delete_dag_file(dag_id, dag_bucket)
-        except Exception as e:
-            print(f"  Warning: could not remove DAG file: {e}")
-
-    print(f"  Deleting Cloud Run job '{job_name}'...")
-    try:
-        _delete_cloud_run_job(job_name, project_id, region)
-    except Exception as e:
-        print(f"  Warning: could not delete Cloud Run job: {e}")
+    print(f"  Destroying Terraform resources for '{pipeline_name}'...", flush=True)
+    _terraform_destroy_pipeline(pipeline_name, project_id, region)
 
 
 # ------------------------------------------------------------------ #
@@ -112,11 +121,9 @@ def _build_image(
     with tempfile.TemporaryDirectory(prefix="pvc-build-") as tmp:
         tmp_path = Path(tmp)
 
-        # Vendor pvc source into the build context
         shutil.copytree(_PVC_PKG_DIR, tmp_path / "pvc")
         shutil.copy2(_PVC_REPO_ROOT / "pyproject.toml", tmp_path / "pyproject.toml")
 
-        # Copy pipeline and connector files from the user's project
         for subdir in ("pipelines", "connectors"):
             src = project_root / subdir
             if src.exists():
@@ -124,7 +131,6 @@ def _build_image(
             else:
                 (tmp_path / subdir).mkdir()
 
-        # Generate a minimal project.yml — no secrets, GCP auth comes from SA
         minimal_config = {
             "catalog": "gcp",
             "gcp": {
@@ -195,79 +201,150 @@ def _ensure_artifact_registry_repo(project_id: str, region: str) -> None:
 
 
 # ------------------------------------------------------------------ #
-# Cloud Run job                                                        #
+# Terraform: per-pipeline resources                                    #
 # ------------------------------------------------------------------ #
 
-def _job_name(pipeline_name: str) -> str:
+def _expected_job_name(pipeline_name: str) -> str:
     return f"pvc-job-{pipeline_name.replace('_', '-')}"
 
 
-def _create_or_update_cloud_run_job(
-    job_name: str,
+def _tf_work_dir(pipeline_name: str) -> Path:
+    return _PIPELINE_TF_DIR / pipeline_name
+
+
+def _tf_env() -> dict:
+    return {
+        **os.environ,
+        "TF_INPUT": "0",
+        "TF_PLUGIN_CACHE_DIR": str(_TF_PLUGIN_CACHE),
+    }
+
+
+def _terraform_apply_pipeline(
+    pipeline_name: str,
     image_uri: str,
+    sa_email: str,
+    dag_bucket: str,
+    dag_blob_name: str,
+    dag_content: str,
     project_id: str,
     region: str,
-    sa_email: str,
-    pipeline_name: str,
-) -> None:
-    check = subprocess.run(
-        [
-            "gcloud", "run", "jobs", "describe", job_name,
-            "--region", region, "--project", project_id,
-        ],
-        capture_output=True,
-    )
-    verb = "update" if check.returncode == 0 else "create"
+) -> str:
+    """Provision Cloud Run job + DAG file via Terraform. Returns the job name."""
+    work_dir = _tf_work_dir(pipeline_name)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        "gcloud", "run", "jobs", verb, job_name,
-        "--image", image_uri,
-        "--region", region,
-        "--project", project_id,
-        "--service-account", sa_email,
-        "--set-env-vars", f"PIPELINE_NAME={pipeline_name}",
-        "--max-retries", "0",
-        "--memory", "512Mi",
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
+    for tf_file in _BATCH_MODULE_DIR.glob("*.tf"):
+        shutil.copy2(tf_file, work_dir / tf_file.name)
+
+    tfvars = {
+        "project_id": project_id,
+        "region": region,
+        "pipeline_name": pipeline_name,
+        "image_uri": image_uri,
+        "sa_email": sa_email,
+        "dag_bucket": dag_bucket,
+        "dag_blob_name": dag_blob_name,
+        "dag_content": dag_content,
+    }
+    (work_dir / "terraform.tfvars.json").write_text(json.dumps(tfvars, indent=2))
+
+    env = _tf_env()
+
+    _tf_run(["terraform", "init", "-reconfigure"], work_dir, env)
+
+    _import_existing_cloud_run_job(pipeline_name, project_id, region, work_dir, env)
+
+    _tf_run(["terraform", "apply", "-auto-approve"], work_dir, env)
+
+    outputs = json.loads(
+        subprocess.run(
+            ["terraform", "output", "-json"],
+            cwd=str(work_dir), env=env, capture_output=True, text=True,
+        ).stdout
+    )
+    return outputs["job_name"]["value"]
+
+
+def _terraform_destroy_pipeline(
+    pipeline_name: str,
+    project_id: str,
+    region: str,
+) -> None:
+    """Destroy Cloud Run job + DAG file via Terraform, then remove the state dir."""
+    work_dir = _tf_work_dir(pipeline_name)
+    if not work_dir.exists():
         raise RuntimeError(
-            f"Failed to {verb} Cloud Run job '{job_name}': {result.stderr}\n"
-            "Ensure the API is enabled:\n"
-            "  gcloud services enable run.googleapis.com"
+            f"No Terraform state found for pipeline '{pipeline_name}' "
+            f"at {work_dir}.\n"
+            "If you deployed from a different machine, delete the Cloud Run job and "
+            "DAG file manually:\n"
+            f"  gcloud run jobs delete pvc-job-{pipeline_name.replace('_', '-')} "
+            f"--region {region} --project {project_id} --quiet"
         )
 
+    env = _tf_env()
+    _tf_run(["terraform", "destroy", "-auto-approve"], work_dir, env)
 
-def _delete_cloud_run_job(job_name: str, project_id: str, region: str) -> None:
+    shutil.rmtree(work_dir)
+
+
+def _import_existing_cloud_run_job(
+    pipeline_name: str,
+    project_id: str,
+    region: str,
+    work_dir: Path,
+    env: dict,
+) -> None:
+    """Import an existing Cloud Run job into Terraform state to avoid 409 on apply."""
+    job_name = _expected_job_name(pipeline_name)
+    check = subprocess.run(
+        ["gcloud", "run", "jobs", "describe", job_name,
+         "--region", region, "--project", project_id],
+        capture_output=True,
+    )
+    if check.returncode != 0:
+        return  # job doesn't exist yet
+
+    resource_id = f"projects/{project_id}/locations/{region}/jobs/{job_name}"
     result = subprocess.run(
-        [
-            "gcloud", "run", "jobs", "delete", job_name,
-            "--region", region, "--project", project_id, "--quiet",
-        ],
-        capture_output=True, text=True,
+        ["terraform", "import", "google_cloud_run_v2_job.pipeline", resource_id],
+        cwd=str(work_dir), env=env, capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        logger.info("Imported existing Cloud Run job '%s' into Terraform state", job_name)
+    elif "already managed by Terraform" in result.stdout + result.stderr:
+        logger.info("Cloud Run job '%s' already in Terraform state", job_name)
+    else:
+        logger.warning("terraform import returned non-zero: %s", result.stderr[-500:])
+
+
+def _tf_run(cmd: list[str], work_dir: Path, env: dict) -> None:
+    result = subprocess.run(
+        cmd, cwd=str(work_dir), env=env, capture_output=True, text=True,
     )
     if result.returncode != 0:
-        raise RuntimeError(result.stderr)
+        logger.error(
+            "Terraform command failed: %s\nSTDOUT: %s\nSTDERR: %s",
+            " ".join(cmd), result.stdout, result.stderr,
+        )
+        raise RuntimeError(
+            f"terraform {cmd[1]} failed (exit {result.returncode}): {result.stderr[-2000:]}"
+        )
+    logger.info("terraform %s OK", cmd[1])
 
 
 # ------------------------------------------------------------------ #
-# Cloud Composer DAG                                                   #
+# Cloud Composer environment                                           #
 # ------------------------------------------------------------------ #
 
-def _describe_composer_dag_bucket(env_name: str, project_id: str, region: str) -> str:
-    """Return the dagGcsPrefix for a known Composer environment by name."""
-    import json
-    result = subprocess.run(
-        [
-            "gcloud", "composer", "environments", "describe", env_name,
-            "--location", region, "--project", project_id,
-            "--format", "json",
-        ],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"Failed to describe Composer environment '{env_name}': {result.stderr}")
-    return json.loads(result.stdout)["config"]["dagGcsPrefix"]
+def _parse_dag_path(dag_gcs_prefix: str, pipeline_name: str) -> tuple[str, str]:
+    """Split 'gs://bucket/dags' into (bucket_name, 'dags/<pipeline>.py')."""
+    prefix = dag_gcs_prefix.removeprefix("gs://")
+    bucket_name, _, blob_prefix = prefix.partition("/")
+    blob_name = f"{blob_prefix}/{pipeline_name}.py" if blob_prefix else f"dags/{pipeline_name}.py"
+    return bucket_name, blob_name
 
 
 def _find_or_create_composer_env(
@@ -275,11 +352,8 @@ def _find_or_create_composer_env(
 ) -> tuple[str, str]:
     """Return (env_name, dag_gcs_prefix) for a RUNNING Composer environment.
 
-    If none exists, creates 'pvc-composer' and polls until it reaches RUNNING state
-    (typically 20–30 minutes). Raises RuntimeError if creation fails or the
-    environment reaches an ERROR state.
+    If none exists, creates 'pvc-composer' and polls until RUNNING.
     """
-    import json
     import time
 
     result = subprocess.run(
@@ -304,7 +378,6 @@ def _find_or_create_composer_env(
         dag_bucket = env["config"]["dagGcsPrefix"]
         return env_name, dag_bucket
 
-    # No environment found — create one
     env_name = "pvc-composer"
     print(
         f"\n  No Cloud Composer environment found in {project_id}/{region}.\n"
@@ -331,9 +404,8 @@ def _find_or_create_composer_env(
             f"    --member=serviceAccount:{sa_email} --role=roles/composer.worker"
         )
 
-    # Poll until RUNNING or ERROR
     poll_interval = 30
-    timeout_secs = 40 * 60  # 40-minute ceiling
+    timeout_secs = 40 * 60
     elapsed = 0
     dots = 0
     while elapsed < timeout_secs:
@@ -351,7 +423,7 @@ def _find_or_create_composer_env(
             capture_output=True, text=True,
         )
         if state_result.returncode != 0:
-            continue  # transient describe failure — keep polling
+            continue
 
         env_data = json.loads(state_result.stdout)
         state = env_data.get("state", "")
@@ -368,10 +440,13 @@ def _find_or_create_composer_env(
 
     raise RuntimeError(
         f"Composer environment '{env_name}' did not reach RUNNING state within 40 minutes.\n"
-        "Check the GCP console for details:\n"
         f"  https://console.cloud.google.com/composer/environments?project={project_id}"
     )
 
+
+# ------------------------------------------------------------------ #
+# DAG content                                                          #
+# ------------------------------------------------------------------ #
 
 def _dag_content(dag_id: str, job_name: str, schedule: str, paused: bool,
                   project_id: str, region: str) -> str:
@@ -397,40 +472,3 @@ def _dag_content(dag_id: str, job_name: str, schedule: str, paused: bool,
                 job_name="{job_name}",
             )
     """)
-
-
-def _upload_dag(
-    dag_id: str,
-    job_name: str,
-    schedule: str,
-    paused: bool,
-    project_id: str,
-    region: str,
-    dag_gcs_prefix: str,
-) -> None:
-    from google.cloud import storage
-
-    dag_py = _dag_content(dag_id, job_name, schedule, paused, project_id, region)
-
-    # dag_gcs_prefix is like "gs://bucket/dags" — strip the gs:// prefix
-    prefix = dag_gcs_prefix.removeprefix("gs://")
-    bucket_name, _, blob_prefix = prefix.partition("/")
-    blob_name = f"{blob_prefix}/{dag_id}.py" if blob_prefix else f"dags/{dag_id}.py"
-
-    client = storage.Client(project=project_id)
-    bucket = client.bucket(bucket_name)
-    bucket.blob(blob_name).upload_from_string(dag_py, content_type="text/plain")
-
-
-def _delete_dag_file(dag_id: str, dag_gcs_prefix: str) -> None:
-    from google.cloud import storage
-
-    prefix = dag_gcs_prefix.removeprefix("gs://")
-    bucket_name, _, blob_prefix = prefix.partition("/")
-    blob_name = f"{blob_prefix}/{dag_id}.py" if blob_prefix else f"dags/{dag_id}.py"
-
-    client = storage.Client()
-    bucket = client.bucket(bucket_name)
-    blob = bucket.blob(blob_name)
-    if blob.exists():
-        blob.delete()

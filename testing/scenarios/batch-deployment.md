@@ -43,7 +43,7 @@ deployment infrastructure.
 Phase 1 success: `pvc validate github_repos` passes with the `deploy:` block present
 and rejects an invalid cron expression with an actionable error.
 
-### Phase 2 — `pvc deploy` provisions GCP infrastructure
+### Phase 2 — `pvc deploy` provisions GCP infrastructure via Terraform
 
 1. Verify prerequisites:
    - `gcloud auth list` — authenticated
@@ -59,11 +59,22 @@ and rejects an invalid cron expression with an actionable error.
    - Cloud Run job: `gcloud run jobs list --region us-central1`
 4. Check `project.yml` — was `deployments.github_repos` written with `schedule`,
    `dag_id`, and `cloud_run_job`?
-5. Note any error messages and classify: missing API? IAM propagation? Container image
-   build step missing? Schema not recognized?
+5. **Verify Terraform state** — confirm resources were provisioned via the
+   `batch_pipeline` Terraform module, not raw gcloud calls:
+   ```bash
+   ls ~/.pvc/terraform/pipelines/github_repos/
+   # Expected: main.tf  outputs.tf  terraform.tfstate  terraform.tfvars.json  variables.tf
+   terraform -chdir=~/.pvc/terraform/pipelines/github_repos show
+   # Expected output contains:
+   #   google_cloud_run_v2_job.pipeline
+   #   google_storage_bucket_object.dag
+   ```
+6. Confirm the Terraform state records the correct resource IDs — the Cloud Run job
+   name in state must match the job listed by `gcloud run jobs list`.
 
 Phase 2 success: `pvc deploy github_repos` completes, the DAG appears in Composer,
-the Cloud Run job exists, and `project.yml` records the deployment state.
+the Cloud Run job exists, `project.yml` records the deployment state, and Terraform
+state at `~/.pvc/terraform/pipelines/github_repos/` contains both provisioned resources.
 
 ### Phase 3 — DAG execution and data verification
 
@@ -91,13 +102,22 @@ returns rows.
 2. Confirm no duplicate DAG was created:
    `gcloud composer environments run <env> --location us-central1 dags list | grep github_repos`
    (should appear exactly once)
-3. Run `pvc undeploy github_repos`.
-4. Confirm the DAG is removed from Composer and the Cloud Run job is gone.
-5. Confirm warehouse data is NOT deleted — GCS files remain:
+3. Confirm the Terraform state directory still exists and still shows exactly two
+   managed resources (no duplicates): `terraform -chdir=~/.pvc/terraform/pipelines/github_repos show`
+4. Run `pvc undeploy github_repos`.
+5. Confirm the DAG is removed from Composer and the Cloud Run job is gone.
+6. **Verify Terraform state directory was removed** by `pvc undeploy`:
+   ```bash
+   ls ~/.pvc/terraform/pipelines/github_repos/
+   # Expected: No such file or directory
+   ```
+7. Confirm warehouse data is NOT deleted — GCS files remain:
    `gsutil ls gs://<warehouse-bucket>/github_repos/github_repos/data/`
-6. Confirm `deployments.github_repos` is removed from `project.yml`.
+8. Confirm `deployments.github_repos` is removed from `project.yml`.
 
-Phase 4 success: second deploy is idempotent; undeploy removes job without touching data.
+Phase 4 success: second deploy is idempotent (Terraform applies a diff, not a
+duplicate); undeploy runs `terraform destroy` and removes the state dir without
+touching warehouse data.
 
 ## Success Criteria
 
@@ -110,11 +130,14 @@ Phase 4 success: second deploy is idempotent; undeploy removes job without touch
 - [ ] Phase 2: `project.yml` records `deployments.github_repos` with schedule, dag_id, cloud_run_job
 - [ ] Phase 2: `pvc deploy` on a pipeline with no `deploy:` block exits with a clear error
 - [ ] Phase 2: `pvc deploy` without `catalog: gcp` in `project.yml` exits with a clear error
+- [ ] Phase 2: Terraform state exists at `~/.pvc/terraform/pipelines/github_repos/terraform.tfstate`
+- [ ] Phase 2: `terraform show` lists `google_cloud_run_v2_job.pipeline` and `google_storage_bucket_object.dag`
 - [ ] Phase 3: DAG run completes successfully (no Airflow task failures)
 - [ ] Phase 3: Parquet files appear in `gs://<warehouse-bucket>/github_repos/github_repos/data/`
 - [ ] Phase 3: Warehouse query returns rows (data is correct and readable)
 - [ ] Phase 4: Second `pvc deploy` produces exactly one DAG (idempotent)
 - [ ] Phase 4: `pvc undeploy github_repos` removes the DAG and Cloud Run job
+- [ ] Phase 4: Terraform state directory is removed after `pvc undeploy`
 - [ ] Phase 4: GCS data files are untouched after `pvc undeploy`
 
 ## Known Complexity
@@ -123,10 +146,10 @@ Phase 4 success: second deploy is idempotent; undeploy removes job without touch
   to provision. If this is the first deploy on a fresh project, plan for a long wait.
   If a Composer environment already exists (from a previous deploy), subsequent deploys
   reuse it and are much faster.
-- **Container image (open design question):** The Cloud Run job must contain the pvc
-  package and the user's `pipelines/` and `connectors/` directories. How this image is
-  built and pushed is the primary unresolved design question in the feature. The first
-  run of this scenario will likely surface this as a blocking finding.
+- **Container image:** The Cloud Run job image is built via Cloud Build and pushed to
+  Artifact Registry. pvc source is vendored into the build context alongside the user's
+  `pipelines/` and `connectors/` directories. A minimal `project.yml` (no secrets) is
+  generated; GCP auth in the container comes from the service account attached to the job.
 - **IAM propagation:** After `pvc deploy` creates any new service account bindings,
   wait 60 seconds before triggering the DAG — IAM changes can take time to propagate.
 - **API enablement:** Cloud Composer, Cloud Run, and (if using container images)
@@ -139,21 +162,21 @@ Phase 4 success: second deploy is idempotent; undeploy removes job without touch
 
 ## Known Expected Findings (Pre-identified)
 
-- **Expected Blocking (Schema):** The `deploy:` block is not yet a recognized field
-  in `pvc/config/models.py`. `pvc validate` will either silently ignore it (Pydantic
-  ignores extra fields) or reject the whole pipeline. A new `Deploy` model and optional
-  `Pipeline.deploy` field must be added before Phase 1 can pass.
-- **Expected Blocking (Runtime):** `pvc deploy` and `pvc undeploy` CLI commands do not
-  exist yet. Phase 2 cannot proceed until they are implemented in `pvc/cli.py`.
-- **Expected Blocking (Container image):** The Cloud Run job needs a container image
-  containing the user's pipelines and connectors. The build and push mechanism is
-  unresolved — this will block Phase 3 even if Phase 2 provisions infrastructure.
-- **Expected UX:** First-time Composer provisioning (15–30 min wait) with no progress
-  indicator will feel like a hang. The deploy command should print a "provisioning
-  Composer environment, this may take 20+ minutes..." message.
-- **Expected UX:** If required GCP APIs are not enabled, the error from the GCP client
-  library will be cryptic. `pvc deploy` should pre-check and emit a specific
-  `gcloud services enable` command for any missing API.
+All original blocking findings have been resolved. Potential findings to watch for in
+ongoing runs:
+
+- **Terraform provider download time:** First `pvc deploy` on a new machine downloads
+  the Google provider (~30 MB). Subsequent runs reuse the cache at
+  `~/.pvc/terraform/.plugin-cache`. Slow first-deploy is expected, not a bug.
+- **Terraform import edge cases:** If a Cloud Run job exists in GCP but not in
+  Terraform state (e.g. deployed from a different machine, or state file was lost),
+  `_import_existing_cloud_run_job()` will import it before apply. If the import fails
+  for an unexpected reason, `terraform apply` may still succeed via an in-place update.
+- **Composer provisioning time:** If no Composer environment exists, provisioning takes
+  20–30 minutes. The deploy command prints progress every 30 seconds.
+- **`pvc undeploy` requires local Terraform state:** If the state directory
+  `~/.pvc/terraform/pipelines/<name>/` is absent (different machine, state deleted),
+  `pvc undeploy` will fail with a clear error pointing to the manual gcloud command.
 
 ## Credentials Required
 

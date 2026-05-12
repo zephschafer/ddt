@@ -6,6 +6,8 @@ streaming pipelines run a Kafka broker + a local stream runner container.
 
 from __future__ import annotations
 
+import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -14,8 +16,44 @@ from datetime import datetime, timezone
 from pathlib import Path
 from textwrap import dedent
 
+import yaml
+
 _PVC_PKG_DIR = Path(__file__).parent
 _PVC_REPO_ROOT = _PVC_PKG_DIR.parent
+
+
+def _collect_env_vars(project_root: Path, pipeline_name: str) -> list[str]:
+    """Scan pipeline YAML for {{ env.VAR }} references and return ['-e', 'VAR=value', ...].
+
+    Resolution order for each VAR:
+      1. Host OS environment variable
+      2. project.yml key (lowercased, e.g. GH_PAT → gh_pat)
+    Raises EnvironmentError if a referenced var cannot be resolved.
+    """
+    pipeline_path = project_root / "pipelines" / f"{pipeline_name}.yml"
+    if not pipeline_path.exists():
+        return []
+
+    raw_yaml = pipeline_path.read_text()
+    var_names = re.findall(r"\{\{\s*env\.(\w+)\s*\}\}", raw_yaml)
+    if not var_names:
+        return []
+
+    project_cfg: dict = {}
+    cfg_path = project_root / "project.yml"
+    if cfg_path.exists():
+        project_cfg = yaml.safe_load(cfg_path.read_text()) or {}
+
+    args: list[str] = []
+    for var in dict.fromkeys(var_names):  # deduplicate, preserve order
+        value = os.environ.get(var) or project_cfg.get(var.lower())
+        if not value:
+            raise EnvironmentError(
+                f"Pipeline references '{{{{ env.{var} }}}}' but '{var}' is not set "
+                f"in the host environment and '{var.lower()}' is not in project.yml"
+            )
+        args += ["-e", f"{var}={value}"]
+    return args
 
 
 # ------------------------------------------------------------------ #
@@ -79,12 +117,19 @@ def _deploy_batch(pipeline_name: str, project_root: Path) -> dict:
     print("  (First build downloads python:3.12-slim, ~1 minute)", flush=True)
     _build_batch_image(project_root, image_tag)
 
+    env_args = _collect_env_vars(project_root, pipeline_name)
+    if env_args:
+        var_names = [env_args[i] for i in range(1, len(env_args), 2)]
+        names_str = ", ".join(v.split("=")[0] for v in var_names)
+        print(f"  Forwarding env vars: {names_str}", flush=True)
+
     print(f"  Running '{pipeline_name}' in container to verify...", flush=True)
     result = subprocess.run(
         [
             "docker", "run", "--rm",
             "--name", f"pvc-verify-{pipeline_name}",
             "-e", f"PIPELINE_NAME={pipeline_name}",
+            *env_args,
             "-v", f"{warehouse_path}:/app/warehouse",
             image_tag,
         ],
@@ -120,6 +165,8 @@ def _build_batch_image(project_root: Path, image_tag: str) -> None:
 
         (tmp_path / "Dockerfile").write_text(dedent("""\
             FROM python:3.12-slim
+            RUN apt-get update && apt-get install -y --no-install-recommends \
+                openjdk-21-jre-headless && rm -rf /var/lib/apt/lists/*
             WORKDIR /app
             COPY pyproject.toml .
             COPY pvc/ ./pvc/
@@ -200,6 +247,7 @@ def _deploy_streaming(
     _start_runner(
         runner_cname, image_tag, network, pipeline_name,
         kafka_cname, kafka_topic, window_seconds, warehouse_path,
+        project_root=project_root,
     )
 
     # Brief pause then confirm the runner is still up
@@ -348,12 +396,15 @@ def _start_runner(
     kafka_topic: str,
     window_seconds: int,
     warehouse_path: Path,
+    project_root: Path | None = None,
 ) -> None:
+    env_args = _collect_env_vars(project_root, pipeline_name) if project_root else []
     subprocess.run(
         [
             "docker", "run", "-d",
             "--name", container_name,
             "--network", network,
+            *env_args,
             "-v", f"{warehouse_path}:/warehouse",
             image_tag,
             "--pipeline_name", pipeline_name,

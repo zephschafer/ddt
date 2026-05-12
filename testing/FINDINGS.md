@@ -1,6 +1,6 @@
 # pvc Core Limitations Tracker
 
-Last updated: 2026-05-12 | Total findings: 46 | Open: 1 | Fixed: 45
+Last updated: 2026-05-12 | Total findings: 49 | Open: 4 | Fixed: 45
 
 ## Severity Definitions
 
@@ -29,6 +29,9 @@ Last updated: 2026-05-12 | Total findings: 46 | Open: 1 | Fixed: 45
 | ID | Severity | Category | Summary | Scenario |
 |----|----------|----------|---------|----------|
 | F-046 | Minor | UX | No actionable guidance when `ZONE_RESOURCE_POOL_EXHAUSTED` — raw Terraform error surfaced with no suggestion to retry in another zone | streaming-deployment |
+| F-047 | Minor | UX | `features/batch-deployment.md` line 55 and scenario criterion "pvc deploy without catalog: gcp exits with clear error" are stale — behavior changed in commit `08faf16` when `catalog: local` was routed to local Docker deployment instead of erroring | batch-deployment |
+| F-048 | Minor | UX | Local Docker deployment (`local_deploy.py`, commit `08faf16`) has no feature file in `features/`; `FEATURES.md` registry is incomplete and requirements/acceptance criteria are undocumented | batch-deployment |
+| F-049 | Minor | UX | `sa_email` is required by `_require_gcp_config()` for `pvc deploy` (GCP path) but is not listed in the batch-deployment scenario notes as a required project.yml field; tester must manually discover and populate it | batch-deployment |
 
 ---
 

@@ -41,7 +41,7 @@ dependencies = [
 package = false
 
 [tool.uv.sources]
-ddt = { path = "../ddt", editable = true }  # local dev; swap for a version once published
+pvc = { git = "https://github.com/zephschafer/ddt.git" }    
 ```
 
 **`project.yml`** (gitignore this file — it holds your credentials):

@@ -51,3 +51,9 @@ variable "compose_file_path" {
   type        = string
   description = "Absolute path where the generated docker-compose.yml will be written"
 }
+
+variable "webserver_port" {
+  type        = number
+  default     = 8090
+  description = "Host port to expose the Airflow webserver on"
+}

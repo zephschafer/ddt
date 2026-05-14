@@ -7,6 +7,7 @@ x-airflow-env: &airflow-env
   AIRFLOW__WEBSERVER__SECRET_KEY: ${fernet_key}
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+  AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
 
 services:
   postgres:
@@ -29,22 +30,18 @@ services:
         condition: service_healthy
     environment:
       <<: *airflow-env
-      _AIRFLOW_DB_MIGRATE: "true"
-      _AIRFLOW_WWW_USER_CREATE: "true"
-      _AIRFLOW_WWW_USER_USERNAME: admin
-      _AIRFLOW_WWW_USER_PASSWORD: ${admin_password}
-    command: version
-    entrypoint: >
-      bash -c "
+    entrypoint:
+      - bash
+      - -c
+      - >-
         airflow db migrate &&
         airflow users create
-          --username admin
-          --password ${admin_password}
-          --firstname Admin
-          --lastname User
-          --role Admin
-          --email admin@ddt.local
-      "
+        --username admin
+        --password ${admin_password}
+        --firstname Admin
+        --lastname User
+        --role Admin
+        --email admin@ddt.local
 
   airflow-scheduler:
     image: ${image_tag}
@@ -67,7 +64,7 @@ services:
     environment:
       <<: *airflow-env
     ports:
-      - "8080:8080"
+      - "${webserver_port}:8080"
     command: webserver
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]

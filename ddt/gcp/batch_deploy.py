@@ -185,6 +185,14 @@ def _tf_work_dir(pipeline_name: str) -> Path:
     return _PIPELINE_TF_DIR / pipeline_name / "gcp"
 
 
+def _copy_templates_to_work_dir(work_dir: Path) -> None:
+    templates_src = _DDT_PKG_DIR / "infra" / "modules" / "templates"
+    templates_dst = work_dir / "templates"
+    if templates_dst.exists():
+        shutil.rmtree(templates_dst)
+    shutil.copytree(templates_src, templates_dst)
+
+
 def _tf_env() -> dict:
     return {
         **os.environ,
@@ -222,6 +230,7 @@ def _terraform_apply_pipeline(
 
     for tf_file in _BATCH_MODULE_DIR.glob("*.tf"):
         shutil.copy2(tf_file, work_dir / tf_file.name)
+    _copy_templates_to_work_dir(work_dir)
 
     tfvars = {
         "project_id": project_id,
@@ -456,6 +465,7 @@ def _tf_apply_airflow_gcp(
 
     for tf_file in _AIRFLOW_MODULE_DIR.glob("*.tf"):
         shutil.copy2(tf_file, work_dir / tf_file.name)
+    _copy_templates_to_work_dir(work_dir)
 
     tfvars = {
         "image_uri": image_uri,

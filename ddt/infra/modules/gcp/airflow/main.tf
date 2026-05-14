@@ -22,7 +22,7 @@ provider "google" {
 }
 
 resource "local_file" "dockerfile" {
-  content  = templatefile("${path.module}/../../templates/airflow.Dockerfile.tftpl", {
+  content  = templatefile("${path.module}/templates/airflow.Dockerfile.tftpl", {
     target = "gcp"
   })
   filename = "${var.build_context}/Dockerfile"

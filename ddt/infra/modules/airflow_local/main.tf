@@ -13,7 +13,7 @@ terraform {
 }
 
 resource "local_file" "dockerfile" {
-  content  = templatefile("${path.module}/../../templates/airflow.Dockerfile.tftpl", {
+  content  = templatefile("${path.module}/templates/airflow.Dockerfile.tftpl", {
     target = "local"
   })
   filename = "${var.build_context}/Dockerfile"
@@ -32,13 +32,14 @@ resource "null_resource" "build" {
 }
 
 resource "local_file" "compose" {
-  content = templatefile("${path.module}/../../templates/docker-compose.yml.tftpl", {
+  content = templatefile("${path.module}/templates/docker-compose.yml.tftpl", {
     image_tag      = var.image_tag
     dag_dir        = var.dag_dir
     docker_socket  = var.docker_socket
     db_password    = var.db_password
     admin_password = var.admin_password
     fernet_key     = var.fernet_key
+    webserver_port = var.webserver_port
   })
   filename = var.compose_file_path
 }

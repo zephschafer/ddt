@@ -1,6 +1,6 @@
 # ddt Core Limitations Tracker
 
-Last updated: 2026-05-14 | Total findings: 51 | Open: 6 | Fixed: 45
+Last updated: 2026-05-14 | Total findings: 58 | Open: 4 | Fixed: 54
 
 ## Severity Definitions
 
@@ -32,8 +32,10 @@ Last updated: 2026-05-14 | Total findings: 51 | Open: 6 | Fixed: 45
 | F-047 | Minor | UX | `features/batch-deployment.md` line 55 and scenario criterion "ddt deploy without catalog: gcp exits with clear error" are stale — behavior changed in commit `08faf16` when `catalog: local` was routed to local Docker deployment instead of erroring | batch-deployment |
 | F-048 | Minor | UX | Local Docker deployment (`local_deploy.py`, commit `08faf16`) has no feature file in `features/`; `FEATURES.md` registry is incomplete and requirements/acceptance criteria are undocumented | batch-deployment |
 | F-049 | Minor | UX | `sa_email` is required by `_require_gcp_config()` for `ddt deploy` (GCP path) but is not listed in the batch-deployment scenario notes as a required project.yml field; tester must manually discover and populate it | batch-deployment |
-| F-050 | Major | Runtime | `ddt/infra/modules/gcp/batch_pipeline/main.tf` names the Cloud Run job `"pvc-job-${var.pipeline_name}"` — the stale `pvc-` prefix from before the project rename. The design requires `"ddt-job-${var.pipeline_name}"`. Until fixed, `ddt deploy` (GCP) creates jobs with the wrong name and success criteria in `batch-deployment-gcp` Phase 1 will fail. | batch-deployment-gcp |
-| F-051 | Minor | Runtime | `tests/test_deploy_cli.py` line 51 (`test_deploy_requires_gcp_catalog`) asserts that `catalog: local` causes `ddt deploy` to exit with error — behavior that changed in commit `08faf16` when local deploy was added. With the new Terraform-based local deploy, `catalog: local` is valid. The test must be updated to mock `local_deploy.deploy` and assert it is called, not assert exit code 1. | batch-deployment-local |
+| F-046 | Minor | UX | No actionable guidance when `ZONE_RESOURCE_POOL_EXHAUSTED` — raw Terraform error surfaced with no suggestion to retry in another zone | streaming-deployment |
+| F-047 | Minor | UX | `features/batch-deployment.md` line 55 and scenario criterion "ddt deploy without catalog: gcp exits with clear error" are stale — behavior changed in commit `08faf16` when `catalog: local` was routed to local Docker deployment instead of erroring | batch-deployment |
+| F-048 | Minor | UX | Local Docker deployment (`local_deploy.py`, commit `08faf16`) has no feature file in `features/`; `FEATURES.md` registry is incomplete and requirements/acceptance criteria are undocumented | batch-deployment |
+| F-049 | Minor | UX | `sa_email` is required by `_require_gcp_config()` for `ddt deploy` (GCP path) but is not listed in the batch-deployment scenario notes as a required project.yml field; tester must manually discover and populate it | batch-deployment |
 
 ---
 
@@ -41,6 +43,15 @@ Last updated: 2026-05-14 | Total findings: 51 | Open: 6 | Fixed: 45
 
 | ID | Summary | Fixed In | Notes |
 |----|---------|----------|-------|
+| F-058 | Airflow REST API auth backend not configured in docker-compose — all `/api/v1/` calls returned 401 | `ddt/infra/modules/templates/docker-compose.yml.tftpl` — added `AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth` to shared env block | batch-deployment-local |
+| F-057 | `DockerOperator` `volumes` parameter removed in `apache-airflow-providers-docker` 3.x — DAG import failed with `Invalid arguments: volumes` | `ddt/local_deploy.py` — `_local_dag_content()` switched to `mounts=[Mount(...)]` with `from docker.types import Mount` | batch-deployment-local |
+| F-056 | Airflow webserver hard-coded to port 8080 — conflicts with other services (e.g., spark-iceberg) | `airflow_local/variables.tf` — new `webserver_port` variable (default 8090); `airflow_local/outputs.tf` and `docker-compose.yml.tftpl` use the variable | batch-deployment-local |
+| F-055 | docker-compose `command: version` + `entrypoint: >` YAML conflict — bash received flags as positional args, causing `command not found` errors | `ddt/infra/modules/templates/docker-compose.yml.tftpl` — `airflow-init` switched to list-form entrypoint with `>-` folded scalar; `command:` removed | batch-deployment-local |
+| F-054 | Airflow 2.10+ base image blocks `pip install` when run as root — build failed with `You are running pip as root` | `ddt/infra/modules/templates/airflow.Dockerfile.tftpl` — removed `USER root` / `USER airflow` wrapper; pip runs as default `airflow` user | batch-deployment-local |
+| F-053 | Airflow base image tag `2.9-python3.12` does not exist on Docker Hub — short `major.minor-pythonX.Y` tags are not published | `ddt/infra/modules/templates/airflow.Dockerfile.tftpl` — updated to `apache/airflow:2.10.4-python3.12` | batch-deployment-local |
+| F-052 | Terraform `path.module` resolves to `.` in copied work dirs — `templatefile()` calls failed with "no file exists at ./../templates/..." | `ddt/local_deploy.py` and `ddt/gcp/batch_deploy.py` — added `_copy_templates_to_work_dir(work_dir)` helper; called in all 4 TF apply functions; all module paths changed to `${path.module}/templates/` | batch-deployment-local |
+| F-051 | `tests/test_deploy_cli.py` `test_deploy_requires_gcp_catalog` asserted `catalog: local` errors — behavior changed when local deploy was added | `tests/test_deploy_cli.py` — replaced stale test with `test_deploy_local_catalog_routes_to_local_deploy` and `test_deploy_no_args_deploys_all` | batch-deployment-local |
+| F-050 | `gcp/batch_pipeline/main.tf` named Cloud Run job `"pvc-job-${var.pipeline_name}"` — stale prefix from before project rename | `ddt/infra/modules/gcp/batch_pipeline/main.tf` — renamed to `"ddt-job-${var.pipeline_name}"` | batch-deployment-gcp |
 | F-045 | `ddt gcp setup` did not grant `roles/dataflow.worker` — workers failed with cryptic IAM error on job startup | `ddt/infra/modules/gcp/main.tf` — added `google_project_iam_member` resource granting `roles/dataflow.worker` to the SA | |
 | F-044 | Wrong Dockerfile base image for Flex Template — `python:3.12-slim` has no `/opt/google/dataflow/python_template_launcher`; job fails at startup | `gcp/streaming_deploy.py` — changed to `gcr.io/dataflow-templates-base/python312-template-launcher-base` with `ENV FLEX_TEMPLATE_PYTHON_PY_FILE` instead of `ENTRYPOINT` | |
 | F-043 | `google_dataflow_flex_template_job` not in GA Terraform provider — `hashicorp/google` does not support this resource type | `ddt/infra/modules/gcp/streaming_pipeline/main.tf` — switched `required_providers` to `hashicorp/google-beta ~> 5.0`; added `provider = google-beta` on the resource | |

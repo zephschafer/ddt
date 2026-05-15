@@ -22,7 +22,6 @@ def _make_project(tmp_path: Path, catalog: str = "local", gcp: dict | None = Non
 def _make_pipeline(project: Path, name: str, with_deploy: bool = True) -> None:
     deploy_block = 'deployment:\n  schedule: "0 8 * * *"\n' if with_deploy else ""
     (project / "pipelines" / f"{name}.yml").write_text(
-        f"version: 1\n"
         f"name: {name}\n"
         f"source:\n  type: http\n  url: https://example.com\n"
         f"  schema:\n    columns:\n      - name: id\n        path: id\n        type: integer\n"

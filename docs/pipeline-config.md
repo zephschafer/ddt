@@ -97,7 +97,6 @@ A pipeline config has three primary sections:
 
 | Field         | Type   | Description                                                                 |
 |---------------|--------|-----------------------------------------------------------------------------|
-| `version`     | int    | Config format version. Always `1`.                                          |
 | `name`        | string | Pipeline identifier. Becomes the warehouse table name.                      |
 | `namespace`   | string | Groups related pipelines. Maps to a warehouse schema/folder.                |
 | `description` | string | Human-readable summary. Optional but recommended.                           |
@@ -432,7 +431,6 @@ Terminal output during a run looks like:
 A complete pipeline that fetches GitHub commits week-by-week and upserts them into the warehouse.
 
 ```yaml
-version: 1
 name: github_commits          # → warehouse table name
 namespace: github             # → warehouse schema/folder
 description: Commits on the main branch, ingested weekly.

@@ -73,7 +73,6 @@ uv sync
 Create `pipelines/github_repos.yml`:
 
 ```yaml
-version: 1
 name: github_repos
 
 source:

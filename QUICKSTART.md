@@ -81,7 +81,6 @@ github_token: ghp_xxxxxxxxxxxx
 Create `pipelines/github_repos.yml`:
 
 ```yaml
-version: 1
 name: github_repos
 namespace: github
 description: My private GitHub repositories

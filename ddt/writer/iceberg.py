@@ -57,31 +57,31 @@ def write(
     df = df.copy()
     df["ddt_updated_at"] = _pst_now()
 
-    namespace = pipeline.namespace or pipeline.name
+    catalog_namespace = pipeline.namespace or pipeline.name  # Spark catalog always needs a namespace
     build = pipeline.cadence
 
     # GCS: use google-cloud-storage + PyArrow directly for all strategies — no Spark catalog needed
     if catalog == "gcp":
         warehouse_bucket = _gcs_warehouse_bucket()
         if build.strategy == "incremental":
-            _upsert_gcs(df, warehouse_bucket, namespace, pipeline.name, build.primary_key)
+            _upsert_gcs(df, warehouse_bucket, pipeline.namespace, pipeline.name, build.primary_key)
         elif build.strategy == "append":
-            _append_gcs(df, warehouse_bucket, namespace, pipeline.name)
+            _append_gcs(df, warehouse_bucket, pipeline.namespace, pipeline.name)
         elif build.strategy == "full_refresh":
-            _overwrite_gcs(df, warehouse_bucket, namespace, pipeline.name)
+            _overwrite_gcs(df, warehouse_bucket, pipeline.namespace, pipeline.name)
         return
 
-    _ensure_namespace(spark, catalog, namespace)
+    _ensure_namespace(spark, catalog, catalog_namespace)
 
     if build.staging:
-        _write_staged(spark, pipeline, df, catalog, namespace, build.staging, build.merge, dynamic_params or {})
+        _write_staged(spark, pipeline, df, catalog, catalog_namespace, build.staging, build.merge, dynamic_params or {})
     elif build.strategy == "incremental":
         warehouse_root = Path(spark.conf.get(f"spark.sql.catalog.{catalog}.warehouse"))
-        _upsert(df, warehouse_root, namespace, pipeline.name, build.primary_key)
+        _upsert(df, warehouse_root, pipeline.namespace, pipeline.name, build.primary_key)
     elif build.strategy == "append":
-        _append(spark, df, f"{catalog}.{namespace}.{pipeline.name}")
+        _append(spark, df, f"{catalog}.{catalog_namespace}.{pipeline.name}")
     elif build.strategy == "full_refresh":
-        _overwrite(spark, df, f"{catalog}.{namespace}.{pipeline.name}")
+        _overwrite(spark, df, f"{catalog}.{catalog_namespace}.{pipeline.name}")
 
 
 def _write_staged(
@@ -104,7 +104,7 @@ def _write_staged(
         _rebuild_merged(spark, catalog, namespace, staging, merge_cfg, pipeline.cadence.primary_key)
 
 
-def _upsert(df: pd.DataFrame, warehouse_root: Path, namespace: str, table_name: str, primary_key: str | None) -> None:
+def _upsert(df: pd.DataFrame, warehouse_root: Path, namespace: str | None, table_name: str, primary_key: str | None) -> None:
     """Upsert df into warehouse_root/namespace/table_name using pyarrow directly.
 
     Manages parquet files without Iceberg so the data directory always contains
@@ -118,7 +118,8 @@ def _upsert(df: pd.DataFrame, warehouse_root: Path, namespace: str, table_name: 
     if primary_key:
         df = df.drop_duplicates(subset=[primary_key])
 
-    data_dir = warehouse_root / namespace / table_name / "data"
+    table_root = warehouse_root / namespace / table_name if namespace else warehouse_root / table_name
+    data_dir = table_root / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
     existing_files = sorted(data_dir.glob("*.parquet"))
@@ -143,7 +144,7 @@ def _upsert(df: pd.DataFrame, warehouse_root: Path, namespace: str, table_name: 
 def _upsert_gcs(
     df: pd.DataFrame,
     bucket_name: str,
-    namespace: str,
+    namespace: str | None,
     table_name: str,
     primary_key: str | None,
 ) -> None:
@@ -154,7 +155,7 @@ def _upsert_gcs(
 
     client = storage.Client()
     bucket = client.bucket(bucket_name)
-    prefix = f"{namespace}/{table_name}/data"
+    prefix = f"{namespace}/{table_name}/data" if namespace else f"{table_name}/data"
 
     parquet_blobs = [
         b for b in bucket.list_blobs(prefix=f"{prefix}/")
@@ -190,7 +191,7 @@ def _upsert_gcs(
 def _append_gcs(
     df: pd.DataFrame,
     bucket_name: str,
-    namespace: str,
+    namespace: str | None,
     table_name: str,
 ) -> None:
     """Append df to GCS by writing a new Parquet file alongside existing ones."""
@@ -200,7 +201,7 @@ def _append_gcs(
 
     client = storage.Client()
     bucket = client.bucket(bucket_name)
-    prefix = f"{namespace}/{table_name}/data"
+    prefix = f"{namespace}/{table_name}/data" if namespace else f"{table_name}/data"
 
     buf = io.BytesIO()
     pq.write_table(pa.Table.from_pandas(df.copy(), preserve_index=False), buf)
@@ -213,7 +214,7 @@ def _append_gcs(
 def _overwrite_gcs(
     df: pd.DataFrame,
     bucket_name: str,
-    namespace: str,
+    namespace: str | None,
     table_name: str,
 ) -> None:
     """Full-refresh: delete all existing Parquet blobs, write a fresh single file."""
@@ -223,7 +224,7 @@ def _overwrite_gcs(
 
     client = storage.Client()
     bucket = client.bucket(bucket_name)
-    prefix = f"{namespace}/{table_name}/data"
+    prefix = f"{namespace}/{table_name}/data" if namespace else f"{table_name}/data"
 
     for blob in bucket.list_blobs(prefix=f"{prefix}/"):
         if blob.name.endswith(".parquet"):

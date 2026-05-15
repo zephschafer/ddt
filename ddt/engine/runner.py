@@ -64,14 +64,19 @@ def run_pipeline(
 
         iceberg_writer.write(spark, pipeline, df, catalog=catalog, dynamic_params=dynamic_params)
 
-    namespace = pipeline.namespace or pipeline.name
     if catalog == "gcp":
         from .. import writer as _w
         bucket = _w.iceberg._gcs_warehouse_bucket()
-        dest = f"gs://{bucket}/{namespace}/{pipeline.name}/data"
+        if pipeline.namespace:
+            dest = f"gs://{bucket}/{pipeline.namespace}/{pipeline.name}/data"
+        else:
+            dest = f"gs://{bucket}/{pipeline.name}/data"
     else:
         from ..project import find_project_root
-        dest = str(find_project_root() / "warehouse" / namespace / pipeline.name / "data")
+        if pipeline.namespace:
+            dest = str(find_project_root() / "warehouse" / pipeline.namespace / pipeline.name / "data")
+        else:
+            dest = str(find_project_root() / "warehouse" / pipeline.name / "data")
 
     total = len(request_sequence)
     if failed == total:

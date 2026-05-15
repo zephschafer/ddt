@@ -528,12 +528,37 @@ def _deploy_one(pipeline_name: str) -> None:
 
 @app.command()
 def undeploy(
-    pipeline_name: str = typer.Argument(..., help="Pipeline name (without .yml)"),
+    pipeline_name: str | None = typer.Argument(None, help="Pipeline name (without .yml). Omit to undeploy everything."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ):
-    """Stop and remove a deployed pipeline (warehouse data is untouched)."""
+    """Stop and remove deployed pipeline(s) (warehouse data is untouched).
+
+    Omit PIPELINE_NAME to destroy all deployments including the Airflow stack.
+    """
     cfg = _load_config()
     deployments = cfg.get("deployments", {})
+
+    if pipeline_name is None:
+        # Undeploy everything
+        if not deployments:
+            typer.echo("Nothing to undeploy.")
+            return
+        if not yes:
+            typer.confirm(
+                f"Destroy all {len(deployments)} pipeline(s) and the Airflow stack? "
+                "(warehouse data will NOT be deleted)",
+                abort=True,
+            )
+        try:
+            from . import local_deploy
+            local_deploy.undeploy_all(deployments)
+        except Exception as e:
+            typer.echo(f"\nUndeploy failed: {e}", err=True)
+            raise typer.Exit(1)
+        cfg.pop("deployments", None)
+        _save_config(cfg)
+        typer.echo("All pipelines undeployed. Warehouse data is untouched.")
+        return
 
     if pipeline_name not in deployments:
         typer.echo(
@@ -544,7 +569,6 @@ def undeploy(
         raise typer.Exit(1)
 
     deployment = deployments[pipeline_name]
-    catalog = _get_catalog()
     deploy_type = deployment.get("type", "batch")
     is_local = "kafka_container" in deployment or (
         "image_tag" in deployment and "dag_id" not in deployment

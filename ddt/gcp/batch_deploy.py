@@ -22,9 +22,22 @@ _DDT_PKG_DIR = Path(__file__).parent.parent          # ddt/ package
 _DDT_REPO_ROOT = _DDT_PKG_DIR.parent
 _BATCH_MODULE_DIR = _DDT_PKG_DIR / "infra" / "modules" / "batch_pipeline"
 _BUILD_DIR = Path.home() / ".ddt" / "build"
-_PIPELINE_TF_DIR = Path.home() / ".ddt" / "terraform" / "pipelines"
-_AIRFLOW_TF_DIR = Path.home() / ".ddt" / "terraform" / "airflow" / "gcp"
-_TF_PLUGIN_CACHE = Path.home() / ".ddt" / "terraform" / ".plugin-cache"
+_TF_PLUGIN_CACHE = Path.home() / ".ddt" / ".plugin-cache"
+
+
+def _tf_state_dir(project_root: Path) -> Path:
+    """Return the Terraform state directory for this project.
+
+    Defaults to <project_root>/.ddt/terraform; can be overridden with
+    `terraform_state_dir` in project.yml.
+    """
+    cfg_path = project_root / "project.yml"
+    if cfg_path.exists():
+        cfg = yaml.safe_load(cfg_path.read_text()) or {}
+        custom = cfg.get("terraform_state_dir")
+        if custom:
+            return Path(custom).expanduser()
+    return project_root / ".ddt" / "terraform"
 
 
 def _write_pyproject_toml(dest: Path) -> None:
@@ -93,6 +106,7 @@ def deploy(
         content_hash=content_hash,
         project_id=project_id,
         region=region,
+        project_root=project_root,
     )
 
     print(f"  Writing DAG to GCS...", flush=True)
@@ -114,6 +128,7 @@ def deploy(
         content_hash=_airflow_content_hash(),
         gcp_config=gcp_config,
         credentials=credentials,
+        project_root=project_root,
     )
 
     airflow_url = airflow_outputs.get("webserver_url", {}).get("value", "")
@@ -130,21 +145,21 @@ def deploy(
     }
 
 
-def undeploy(pipeline_name: str, deployment: dict, gcp_config: dict) -> None:
+def undeploy(pipeline_name: str, deployment: dict, gcp_config: dict, project_root: Path) -> None:
     """Remove the Cloud Run job via Terraform destroy and delete the DAG from GCS."""
     project_id = gcp_config["project_id"]
     region = gcp_config["region"]
     warehouse_bucket = gcp_config["warehouse_bucket"]
 
     print(f"  Destroying Terraform resources for '{pipeline_name}'...", flush=True)
-    _terraform_destroy_pipeline(pipeline_name, project_id, region)
+    _terraform_destroy_pipeline(pipeline_name, project_id, region, project_root)
 
     print(f"  Deleting DAG from GCS...", flush=True)
     _delete_dag_gcs(pipeline_name, warehouse_bucket)
 
     if not _gcs_dag_files_exist(warehouse_bucket):
         print(f"  No remaining DAGs — tearing down Airflow stack...", flush=True)
-        _tf_destroy_airflow_gcp()
+        _tf_destroy_airflow_gcp(project_root)
 
 
 # ------------------------------------------------------------------ #
@@ -206,8 +221,8 @@ def _expected_job_name(pipeline_name: str) -> str:
     return f"ddt-job-{pipeline_name.replace('_', '-')}"
 
 
-def _tf_work_dir(pipeline_name: str) -> Path:
-    return _PIPELINE_TF_DIR / pipeline_name / "gcp"
+def _tf_work_dir(pipeline_name: str, project_root: Path) -> Path:
+    return _tf_state_dir(project_root) / "pipelines" / pipeline_name / "gcp"
 
 
 def _copy_module_to_work_dir(module_dir: Path, work_dir: Path) -> None:
@@ -253,9 +268,10 @@ def _terraform_apply_pipeline(
     content_hash: str,
     project_id: str,
     region: str,
+    project_root: Path,
 ) -> str:
     """Provision Cloud Run job via Terraform + Cloud Build. Returns the job name."""
-    work_dir = _tf_work_dir(pipeline_name)
+    work_dir = _tf_work_dir(pipeline_name, project_root)
     work_dir.mkdir(parents=True, exist_ok=True)
     _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
 
@@ -288,10 +304,10 @@ def _terraform_apply_pipeline(
 
 
 def _terraform_destroy_pipeline(
-    pipeline_name: str, project_id: str, region: str,
+    pipeline_name: str, project_id: str, region: str, project_root: Path,
 ) -> None:
     """Destroy Cloud Run job via Terraform, then remove the state dir."""
-    work_dir = _tf_work_dir(pipeline_name)
+    work_dir = _tf_work_dir(pipeline_name, project_root)
     if not work_dir.exists():
         raise RuntimeError(
             f"No Terraform state found for pipeline '{pipeline_name}' at {work_dir}.\n"
@@ -489,8 +505,9 @@ def _tf_apply_airflow_gcp(
     content_hash: str,
     gcp_config: dict,
     credentials: dict,
+    project_root: Path,
 ) -> dict:
-    work_dir = _AIRFLOW_TF_DIR
+    work_dir = _tf_state_dir(project_root) / "airflow" / "gcp"
     work_dir.mkdir(parents=True, exist_ok=True)
     _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
 
@@ -521,8 +538,8 @@ def _tf_apply_airflow_gcp(
     return json.loads(raw) if raw.strip() else {}
 
 
-def _tf_destroy_airflow_gcp() -> None:
-    work_dir = _AIRFLOW_TF_DIR
+def _tf_destroy_airflow_gcp(project_root: Path) -> None:
+    work_dir = _tf_state_dir(project_root) / "airflow" / "gcp"
     if not work_dir.exists():
         return
 

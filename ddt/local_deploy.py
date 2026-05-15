@@ -61,10 +61,24 @@ def _write_pyproject_toml(dest: Path) -> None:
     )
 
 _BUILD_DIR = Path.home() / ".ddt" / "build"
-_TF_DIR = Path.home() / ".ddt" / "terraform"
-_TF_PLUGIN_CACHE = _TF_DIR / ".plugin-cache"
+_TF_PLUGIN_CACHE = Path.home() / ".ddt" / ".plugin-cache"
 _AIRFLOW_DAGS_DIR = Path.home() / ".ddt" / "airflow" / "dags"
 _AIRFLOW_COMPOSE_FILE = Path.home() / ".ddt" / "airflow" / "docker-compose.yml"
+
+
+def _tf_state_dir(project_root: Path) -> Path:
+    """Return the Terraform state directory for this project.
+
+    Defaults to <project_root>/.ddt/terraform; can be overridden with
+    `terraform_state_dir` in project.yml.
+    """
+    cfg_path = project_root / "project.yml"
+    if cfg_path.exists():
+        cfg = yaml.safe_load(cfg_path.read_text()) or {}
+        custom = cfg.get("terraform_state_dir")
+        if custom:
+            return Path(custom).expanduser()
+    return project_root / ".ddt" / "terraform"
 
 
 def _collect_env_vars(project_root: Path, pipeline_name: str) -> dict[str, str]:
@@ -115,20 +129,20 @@ def deploy(
         return _deploy_batch(pipeline_name, deployment, project_root)
 
 
-def undeploy(pipeline_name: str, deployment_state: dict) -> None:
+def undeploy(pipeline_name: str, deployment_state: dict, project_root: Path) -> None:
     """Stop and remove all local Docker resources for this pipeline."""
     if deployment_state.get("type") == "streaming":
         _undeploy_streaming(pipeline_name, deployment_state)
     else:
-        _undeploy_batch(pipeline_name, deployment_state)
+        _undeploy_batch(pipeline_name, deployment_state, project_root)
 
 
-def undeploy_all(deployments: dict) -> None:
+def undeploy_all(deployments: dict, project_root: Path) -> None:
     """Destroy all pipeline resources then tear down the shared Airflow stack."""
     for name, state in deployments.items():
         print(f"  Undeploying '{name}'...", flush=True)
-        undeploy(name, state)
-    _tf_destroy_airflow_local()
+        undeploy(name, state, project_root)
+    _tf_destroy_airflow_local(project_root)
 
 
 def publish(pipeline_name: str, deployment_state: dict, message_json: str, count: int = 1) -> None:
@@ -163,7 +177,7 @@ def _deploy_batch(pipeline_name: str, deployment, project_root: Path) -> dict:
     content_hash = _content_hash(build_context)
 
     print(f"  Applying Terraform (pipeline image)...", flush=True)
-    _tf_apply_local_pipeline(pipeline_name, build_context, image_tag, content_hash)
+    _tf_apply_local_pipeline(pipeline_name, build_context, image_tag, content_hash, project_root)
 
     print(f"  Writing DAG file...", flush=True)
     _AIRFLOW_DAGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -183,6 +197,7 @@ def _deploy_batch(pipeline_name: str, deployment, project_root: Path) -> dict:
         dag_dir=str(_AIRFLOW_DAGS_DIR),
         warehouse_path=str(warehouse_path),
         credentials=credentials,
+        project_root=project_root,
     )
 
     airflow_url = airflow_outputs.get("webserver_url", {}).get("value", "http://localhost:8080")
@@ -198,9 +213,9 @@ def _deploy_batch(pipeline_name: str, deployment, project_root: Path) -> dict:
     }
 
 
-def _undeploy_batch(pipeline_name: str, state: dict) -> None:
+def _undeploy_batch(pipeline_name: str, state: dict, project_root: Path) -> None:
     print(f"  Destroying pipeline Terraform resources...", flush=True)
-    _tf_destroy_local_pipeline(pipeline_name)
+    _tf_destroy_local_pipeline(pipeline_name, project_root)
 
     dag_file = _AIRFLOW_DAGS_DIR / f"{pipeline_name}.py"
     if dag_file.exists():
@@ -283,8 +298,9 @@ def _tf_apply_local_pipeline(
     build_context: Path,
     image_tag: str,
     content_hash: str,
+    project_root: Path,
 ) -> None:
-    work_dir = _TF_DIR / "pipelines" / pipeline_name / "local"
+    work_dir = _tf_state_dir(project_root) / "pipelines" / pipeline_name / "local"
     work_dir.mkdir(parents=True, exist_ok=True)
     _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
 
@@ -304,8 +320,8 @@ def _tf_apply_local_pipeline(
     _tf_run(["terraform", "apply", "-auto-approve"], work_dir, env)
 
 
-def _tf_destroy_local_pipeline(pipeline_name: str) -> None:
-    work_dir = _TF_DIR / "pipelines" / pipeline_name / "local"
+def _tf_destroy_local_pipeline(pipeline_name: str, project_root: Path) -> None:
+    work_dir = _tf_state_dir(project_root) / "pipelines" / pipeline_name / "local"
     if not work_dir.exists():
         logger.warning("No Terraform state found at %s — skipping destroy", work_dir)
         return
@@ -315,8 +331,8 @@ def _tf_destroy_local_pipeline(pipeline_name: str) -> None:
     shutil.rmtree(work_dir)
 
 
-def _tf_destroy_airflow_local() -> None:
-    work_dir = _TF_DIR / "airflow" / "local"
+def _tf_destroy_airflow_local(project_root: Path) -> None:
+    work_dir = _tf_state_dir(project_root) / "airflow" / "local"
     if not work_dir.exists():
         logger.warning("No Airflow Terraform state found at %s — skipping destroy", work_dir)
         return
@@ -429,8 +445,8 @@ def _generate_airflow_credentials(project_root: Path) -> dict:
     }
 
 
-def _tf_apply_airflow_local(dag_dir: str, warehouse_path: str, credentials: dict) -> dict:
-    work_dir = _TF_DIR / "airflow" / "local"
+def _tf_apply_airflow_local(dag_dir: str, warehouse_path: str, credentials: dict, project_root: Path) -> dict:
+    work_dir = _tf_state_dir(project_root) / "airflow" / "local"
     work_dir.mkdir(parents=True, exist_ok=True)
     _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
 

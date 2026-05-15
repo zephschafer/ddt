@@ -551,7 +551,7 @@ def undeploy(
             )
         try:
             from . import local_deploy
-            local_deploy.undeploy_all(deployments)
+            local_deploy.undeploy_all(deployments, _project_root())
         except Exception as e:
             typer.echo(f"\nUndeploy failed: {e}", err=True)
             raise typer.Exit(1)
@@ -605,7 +605,7 @@ def undeploy(
     try:
         if is_local:
             from . import local_deploy
-            local_deploy.undeploy(pipeline_name, deployment)
+            local_deploy.undeploy(pipeline_name, deployment, _project_root())
         elif deploy_type == "streaming":
             _, gcp = _require_gcp_config()
             from .gcp import streaming_deploy
@@ -621,6 +621,7 @@ def undeploy(
                 pipeline_name=pipeline_name,
                 deployment=deployment,
                 gcp_config=gcp,
+                project_root=_project_root(),
             )
     except Exception as e:
         typer.echo(f"\nUndeploy failed: {e}", err=True)

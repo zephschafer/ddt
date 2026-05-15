@@ -26,7 +26,7 @@ def _make_pipeline(project: Path, name: str, with_deploy: bool = True) -> None:
         f"name: {name}\n"
         f"source:\n  type: http\n  url: https://example.com\n"
         f"schema:\n  columns:\n    - name: id\n      path: id\n      type: integer\n"
-        f"build:\n  strategy: incremental\n  primary_key: id\n"
+        f"cadence:\n  strategy: incremental\n  primary_key: id\n"
         f"{deploy_block}"
     )
 

@@ -117,7 +117,7 @@ schema:
       path: owner.login
       type: string
 
-build:
+cadence:
   strategy: incremental
   primary_key: id
 ```

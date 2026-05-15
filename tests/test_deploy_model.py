@@ -59,7 +59,7 @@ _PIPELINE_BASE = {
     "schema": {
         "columns": [{"name": "id", "path": "id", "type": "integer"}],
     },
-    "build": {"strategy": "incremental", "primary_key": "id"},
+    "cadence": {"strategy": "incremental", "primary_key": "id"},
 }
 
 

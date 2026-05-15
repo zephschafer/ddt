@@ -96,7 +96,7 @@ schema:
     - {name: stargazers_count, path: stargazers_count, type: integer}
     - {name: updated_at,       path: updated_at,       type: timestamp}
 
-build:
+cadence:
   strategy: incremental
   primary_key: id
 
@@ -255,7 +255,7 @@ ddt/
 │   ├── models.py       Pydantic models for pipeline YAML
 │   └── loader.py       YAML loading + env var resolution
 ├── engine/
-│   ├── runner.py       Outer loop (iterate → fetch → project → write)
+│   ├── runner.py       Outer loop (expand cadence → fetch → project → write)
 │   ├── fetcher.py      HTTP and Python source fetchers
 │   ├── iterator.py     Cartesian iteration over date ranges and categoricals
 │   ├── projector.py    Schema projection (path extraction, transforms)

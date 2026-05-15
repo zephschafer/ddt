@@ -27,7 +27,7 @@ the first run will surface Blocking findings that drive development of the
 
 This scenario tests ddt's own CLI, GCP provisioning layer, and the new Beam runner —
 not an external third-party API. The pipeline used as the test vehicle is
-`click_events`: a flat JSON event with five fields, no nesting, no iterate axes,
+`click_events`: a flat JSON event with five fields, no nesting, no cadence axes,
 keeping schema complexity minimal so failures isolate to the streaming infrastructure.
 
 ## Target API
@@ -265,7 +265,7 @@ touching warehouse data.
   layer in the Beam pipeline code.
 - **`append` strategy only:** Streaming pipelines cannot use `incremental` (upsert)
   strategy — there is no batch to deduplicate within. The pipeline YAML must use
-  `build.strategy: append`. `ddt validate` should reject `strategy: incremental` on a
+  `cadence.strategy: append`. `ddt validate` should reject `strategy: incremental` on a
   streaming pipeline with a clear error.
 
 ## Known Expected Findings (Pre-identified)
@@ -318,7 +318,7 @@ as the batch-deployment scenario comment block), not as new keys.
 - This scenario tests **entirely unimplemented feature code**. Every Phase 1 and Phase 2
   step will produce Blocking findings. Document them precisely and stop — do not
   work around missing schema fields or CLI commands by writing custom Python.
-- Use `click_events` as the test pipeline — flat JSON, no nesting, no iterate axes.
+- Use `click_events` as the test pipeline — flat JSON, no nesting, no cadence axes.
   Isolates all failures to the streaming infrastructure layer.
 - The CLONE for this scenario should have `catalog: gcp`, a valid `gcp.warehouse_bucket`,
   and `gcp.setup_status: complete` in `project.yml` — same config as `gcp-data-lake`

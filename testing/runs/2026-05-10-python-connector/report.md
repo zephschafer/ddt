@@ -117,7 +117,7 @@ schema:
       path: updated_at
       type: timestamp
 
-build:
+cadence:
   strategy: incremental
   primary_key: id
 ```

@@ -58,7 +58,7 @@ def write(
     df["ddt_updated_at"] = _pst_now()
 
     namespace = pipeline.namespace or pipeline.name
-    build = pipeline.build
+    build = pipeline.cadence
 
     # GCS: use google-cloud-storage + PyArrow directly for all strategies — no Spark catalog needed
     if catalog == "gcp":
@@ -98,10 +98,10 @@ def _write_staged(
     table_name = staging.table_pattern.format(**{staging.partition_param: param_value})
 
     warehouse_root = Path(spark.conf.get(f"spark.sql.catalog.{catalog}.warehouse"))
-    _upsert(df, warehouse_root, namespace, table_name, pipeline.build.primary_key)
+    _upsert(df, warehouse_root, namespace, table_name, pipeline.cadence.primary_key)
 
     if merge_cfg:
-        _rebuild_merged(spark, catalog, namespace, staging, merge_cfg, pipeline.build.primary_key)
+        _rebuild_merged(spark, catalog, namespace, staging, merge_cfg, pipeline.cadence.primary_key)
 
 
 def _upsert(df: pd.DataFrame, warehouse_root: Path, namespace: str, table_name: str, primary_key: str | None) -> None:

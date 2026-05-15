@@ -14,7 +14,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from ddt.config.models import Pipeline, PythonSource, Schema, Column, Build
+from ddt.config.models import Pipeline, PythonSource, Schema, Column, Cadence
 
 
 def _make_pipeline(name: str = "test") -> Pipeline:
@@ -22,7 +22,7 @@ def _make_pipeline(name: str = "test") -> Pipeline:
         name=name,
         source=PythonSource(type="python", module="m", function="f"),
         schema_=Schema(columns=[Column(name="id", path="id", type="string")]),
-        build=Build(strategy="incremental", primary_key="id"),
+        cadence=Cadence(strategy="incremental", primary_key="id"),
     )
 
 
@@ -69,13 +69,12 @@ class TestFetchErrorReporting:
         from ddt.config.models import CategoricalIterate
         pipeline = Pipeline(
             name="multi",
-            source=PythonSource(
-                type="python", module="m", function="f",
-                iterate=[CategoricalIterate(type="categorical", param="x", values=["a", "b", "c"])],
-                params=[],
-            ),
+            source=PythonSource(type="python", module="m", function="f"),
             schema_=Schema(columns=[Column(name="id", path="id", type="string")]),
-            build=Build(strategy="append"),
+            cadence=Cadence(
+                strategy="append",
+                iterate=[CategoricalIterate(type="categorical", param="x", values=["a", "b", "c"])],
+            ),
         )
 
         call_count = 0

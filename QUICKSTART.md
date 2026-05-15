@@ -141,7 +141,7 @@ schema:
       path: visibility
       type: string
 
-build:
+cadence:
   strategy: incremental
   primary_key: id
 ```
@@ -151,7 +151,7 @@ A few things to notice:
 - **`namespace: github`** — groups the table under `warehouse/github/`. Without this, the table lands under `warehouse/github_repos/`.
 - **`auth.key: token`** — bearer auth doesn't use the key field, but the schema requires it. Use any placeholder.
 - **`{{ env.GITHUB_TOKEN }}`** — resolved from `project.yml` or your shell environment at run time.
-- **`build.strategy: incremental`** — upserts on `id` each run, so re-running the same pipeline never creates duplicates.
+- **`cadence.strategy: incremental`** — upserts on `id` each run, so re-running the same pipeline never creates duplicates.
 - **`type: boolean`** — ddt casts GitHub's JSON `true`/`false` to a native Python bool. Similarly, `timestamp` parses ISO 8601 strings with timezone info.
 
 ---
@@ -163,7 +163,7 @@ uv run ddt validate github_repos
 ```
 
 ```
-OK — 'github_repos' (2 params, 0 iterate axes, 12 columns)
+OK — 'github_repos' (2 params, 0 cadence axes, 12 columns)
 ```
 
 > **Note:** validate does not check whether your credentials are set. That check happens at run time.
@@ -240,7 +240,7 @@ conn.execute("SELECT COUNT(*) FROM read_parquet('warehouse/github/github_repos/d
 
 ## What's next
 
-- **Iterate over date ranges** — add a `date_range` iterate axis to pull data window by window. Useful for APIs that filter by date (commits, events, logs).
+- **Iterate over date ranges** — add a `date_range` axis to `cadence.iterate` to pull data window by window. Useful for APIs that filter by date (commits, events, logs).
 - **Project nested fields** — use dot-notation paths like `owner.login` to extract values from nested objects.
 - **Project array fields** — use the `array_join` transform to flatten list fields like `topics` into a comma-separated string.
 - **Add a Python connector** — for APIs that need pagination, multi-step auth, or response reshaping, write a `connectors/` function and use `type: python`.

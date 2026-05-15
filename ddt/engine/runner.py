@@ -24,7 +24,7 @@ def run_pipeline(
         spark = get_spark("ddt")
 
     param_defs = {p.name: p for p in pipeline.source.params}
-    request_sequence = build_request_sequence(pipeline.source.iterate, param_defs)
+    request_sequence = build_request_sequence(pipeline.cadence.iterate, param_defs)
 
     if limit is not None:
         request_sequence = request_sequence[:limit]

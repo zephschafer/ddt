@@ -24,7 +24,7 @@ schema:
       path: timestamp
       type: timestamp
 
-build:
+cadence:
   strategy: append
 
 deploy:

@@ -12,7 +12,7 @@ deployment functionality works correctly. Three new Minor/UX findings filed.
 ## Success Criteria
 
 - [x] Phase 1: `ddt validate github_repos` accepts a `deploy: { schedule: "0 8 * * *" }` block
-  - Output: `OK — 'github_repos' (2 params, 0 iterate axes, 11 columns)`
+  - Output: `OK — 'github_repos' (2 params, 0 cadence axes, 11 columns)`
 - [x] Phase 1: `ddt validate` rejects an invalid cron expression with a clear error message
   - Error text: `deploy.schedule 'not a cron' is not a valid cron expression. Expected 5 space-separated fields...`
 - [x] Phase 1: `ddt validate` on a pipeline without `deploy:` is unaffected (no regression)
@@ -149,7 +149,7 @@ schema:
       path: owner.login
       type: string
 
-build:
+cadence:
   strategy: incremental
   primary_key: id
 

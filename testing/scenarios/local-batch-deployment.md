@@ -41,7 +41,7 @@ schema:
     - {name: private, path: private, type: boolean}
     - {name: stargazers_count, path: stargazers_count, type: integer}
     - {name: updated_at, path: updated_at, type: timestamp}
-build:
+cadence:
   strategy: append
 deploy:
   type: batch

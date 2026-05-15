@@ -86,7 +86,7 @@ schema:
     - {name: action, path: action, type: string}
     - {name: page, path: page, type: string}
     - {name: timestamp, path: timestamp, type: timestamp}
-build:
+cadence:
   strategy: append
 deploy:
   type: streaming

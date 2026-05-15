@@ -26,13 +26,12 @@ source:
   module: connectors.noop
   function: fetch
   params: []
-  iterate: []
 schema:
   columns:
     - name: id
       path: id
       type: string
-build:
+cadence:
   strategy: incremental
   primary_key: id
 """

@@ -85,14 +85,8 @@ class HttpSource(BaseModel):
     method: Literal["GET", "POST"] = "GET"
     auth: Auth | None = None
     params: list[Param] = []
-    iterate: list[IterateSpec] = []
     response: Response = Response(format="json")
     rate_limit: RateLimit | None = None
-
-    @model_validator(mode="after")
-    def all_dynamic_params_have_iterators(self) -> HttpSource:
-        _validate_dynamic_params(self.params, self.iterate)
-        return self
 
 
 class PythonSource(BaseModel):
@@ -101,12 +95,6 @@ class PythonSource(BaseModel):
     module: str       # importable module path, e.g. "connectors.craigslist_apts"
     function: str     # function name; called as fn(dynamic_params) -> list[dict]
     params: list[Param] = []
-    iterate: list[IterateSpec] = []
-
-    @model_validator(mode="after")
-    def all_dynamic_params_have_iterators(self) -> PythonSource:
-        _validate_dynamic_params(self.params, self.iterate)
-        return self
 
 
 class PubSubSource(BaseModel):
@@ -179,7 +167,8 @@ class MergeConfig(BaseModel):
     dedup: MergeDedup | None = None
 
 
-class Build(BaseModel):
+class Cadence(BaseModel):
+    iterate: list[IterateSpec] = []
     strategy: Literal["incremental", "append", "full_refresh"]
     primary_key: str | None = None
     staging: StagingConfig | None = None
@@ -227,7 +216,7 @@ class Pipeline(BaseModel):
     description: str | None = None
     source: Source
     schema_: Schema
-    build: Build
+    cadence: Cadence
     deploy: Deploy | None = None
 
     model_config = {"populate_by_name": True}
@@ -237,17 +226,9 @@ class Pipeline(BaseModel):
         return super().model_fields_set()
 
     @model_validator(mode="after")
-    def streaming_constraints(self) -> "Pipeline":
-        if isinstance(self.source, PubSubSource):
-            if self.build.strategy != "append":
-                raise ValueError(
-                    "Streaming pipelines (source.type: pubsub) require "
-                    "build.strategy: append — incremental and full_refresh are not supported"
-                )
-            if self.deploy and self.deploy.type != "streaming":
-                raise ValueError(
-                    "Pipelines with source.type: pubsub must use deploy.type: streaming"
-                )
+    def all_dynamic_params_have_iterators(self) -> "Pipeline":
+        if isinstance(self.source, (HttpSource, PythonSource)):
+            _validate_dynamic_params(self.source.params, self.cadence.iterate)
         return self
 
     # Allow "schema" key in YAML (reserved word in Python)

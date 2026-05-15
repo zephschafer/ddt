@@ -58,6 +58,6 @@ schema:
       path: visibility
       type: string
 
-build:
+cadence:
   strategy: incremental
   primary_key: id

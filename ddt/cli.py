@@ -158,7 +158,7 @@ def validate(
             )
         else:
             typer.echo(f"OK — '{pipeline.name}' ({len(pipeline.source.params)} params, "
-                       f"{len(pipeline.source.iterate)} iterate axes, "
+                       f"{len(pipeline.cadence.iterate)} cadence axes, "
                        f"{len(pipeline.schema_.columns)} columns)")
 
 
@@ -786,7 +786,7 @@ def _parse_params(raw: list[str]) -> dict:
 
 def _override_date_range(pipeline, start: str | None, end: str | None) -> None:
     from .config.models import DateRangeIterate
-    for spec in pipeline.source.iterate:
+    for spec in pipeline.cadence.iterate:
         if isinstance(spec, DateRangeIterate):
             if start:
                 spec.start = start

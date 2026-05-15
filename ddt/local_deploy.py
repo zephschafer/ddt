@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 _DDT_PKG_DIR = Path(__file__).parent
 _DDT_REPO_ROOT = _DDT_PKG_DIR.parent
 
-_LOCAL_PIPELINE_MODULE = _DDT_PKG_DIR / "infra" / "modules" / "batch_pipeline_local"
-_LOCAL_AIRFLOW_MODULE = _DDT_PKG_DIR / "infra" / "modules" / "airflow_local"
+_BATCH_PIPELINE_MODULE = _DDT_PKG_DIR / "infra" / "modules" / "batch_pipeline"
+_AIRFLOW_MODULE = _DDT_PKG_DIR / "infra" / "modules" / "airflow"
 
 _BUILD_DIR = Path.home() / ".ddt" / "build"
 _TF_DIR = Path.home() / ".ddt" / "terraform"
@@ -224,8 +224,13 @@ def _tf_run(cmd: list[str], work_dir: Path, env: dict) -> None:
     logger.info("terraform %s OK", cmd[1])
 
 
-def _copy_templates_to_work_dir(work_dir: Path) -> None:
-    """Copy the shared templates directory into the Terraform work dir so path.module resolves."""
+def _copy_module_to_work_dir(module_dir: Path, work_dir: Path) -> None:
+    """Copy a leaf Terraform module's .tf files + shared templates into work_dir."""
+    for item in module_dir.iterdir():
+        if item.name in (".terraform", ".terraform.lock.hcl"):
+            continue
+        if item.is_file() and item.suffix == ".tf":
+            shutil.copy2(item, work_dir / item.name)
     templates_src = _DDT_PKG_DIR / "infra" / "modules" / "templates"
     templates_dst = work_dir / "templates"
     if templates_dst.exists():
@@ -243,9 +248,7 @@ def _tf_apply_local_pipeline(
     work_dir.mkdir(parents=True, exist_ok=True)
     _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
 
-    for tf_file in _LOCAL_PIPELINE_MODULE.glob("*.tf"):
-        shutil.copy2(tf_file, work_dir / tf_file.name)
-    _copy_templates_to_work_dir(work_dir)
+    _copy_module_to_work_dir(_BATCH_PIPELINE_MODULE / "local", work_dir)
 
     tfvars = {
         "pipeline_name": pipeline_name,
@@ -365,9 +368,7 @@ def _tf_apply_airflow_local(dag_dir: str, warehouse_path: str, credentials: dict
     work_dir.mkdir(parents=True, exist_ok=True)
     _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
 
-    for tf_file in _LOCAL_AIRFLOW_MODULE.glob("*.tf"):
-        shutil.copy2(tf_file, work_dir / tf_file.name)
-    _copy_templates_to_work_dir(work_dir)
+    _copy_module_to_work_dir(_AIRFLOW_MODULE / "local", work_dir)
 
     build_context = _airflow_build_context()
     content_hash = _airflow_content_hash()

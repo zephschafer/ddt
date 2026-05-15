@@ -89,5 +89,9 @@ with DAG(
     )
 ```
 
+## Friction Points (continued)
+- After `ddt undeploy`, the Airflow stack (postgres, scheduler, webserver) remains running. User must manually run `docker compose -f ~/.ddt/airflow/docker-compose.yml down -v` to stop it. GCP undeploy auto-tears down Airflow when no DAGs remain; local path should do the same.
+  [→ Finding F-059: Minor / UX]
+
 ## Proposed Fixes
-All findings were fixed during this run. No remaining action items.
+1. F-059: In `_undeploy_batch()`, after removing the DAG file, check if `_AIRFLOW_DAGS_DIR` is empty and call `_tf_destroy_airflow_local()` if so (mirroring the GCP path's `_gcs_dag_files_exist()` check).

@@ -27,7 +27,6 @@ _DDT_PKG_DIR = Path(__file__).parent
 _DDT_REPO_ROOT = _DDT_PKG_DIR.parent
 
 _BATCH_PIPELINE_MODULE = _DDT_PKG_DIR / "infra" / "modules" / "batch_pipeline"
-_AIRFLOW_MODULE = _DDT_PKG_DIR / "infra" / "modules" / "airflow"
 
 _BUILD_DIR = Path.home() / ".ddt" / "build"
 _TF_DIR = Path.home() / ".ddt" / "terraform"
@@ -231,7 +230,7 @@ def _copy_module_to_work_dir(module_dir: Path, work_dir: Path) -> None:
             continue
         if item.is_file() and item.suffix == ".tf":
             shutil.copy2(item, work_dir / item.name)
-    templates_src = _DDT_PKG_DIR / "infra" / "modules" / "templates"
+    templates_src = _DDT_PKG_DIR / "infra" / "templates"
     templates_dst = work_dir / "templates"
     if templates_dst.exists():
         shutil.rmtree(templates_dst)
@@ -368,7 +367,7 @@ def _tf_apply_airflow_local(dag_dir: str, warehouse_path: str, credentials: dict
     work_dir.mkdir(parents=True, exist_ok=True)
     _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
 
-    _copy_module_to_work_dir(_AIRFLOW_MODULE / "local", work_dir)
+    _copy_module_to_work_dir(_BATCH_PIPELINE_MODULE / "local" / "airflow", work_dir)
 
     build_context = _airflow_build_context()
     content_hash = _airflow_content_hash()

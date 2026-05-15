@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 _DDT_PKG_DIR = Path(__file__).parent.parent          # ddt/ package
 _DDT_REPO_ROOT = _DDT_PKG_DIR.parent                 # repo root (contains pyproject.toml)
 _BATCH_MODULE_DIR = _DDT_PKG_DIR / "infra" / "modules" / "batch_pipeline"
-_AIRFLOW_MODULE_DIR = _DDT_PKG_DIR / "infra" / "modules" / "airflow"
 _BUILD_DIR = Path.home() / ".ddt" / "build"
 _PIPELINE_TF_DIR = Path.home() / ".ddt" / "terraform" / "pipelines"
 _AIRFLOW_TF_DIR = Path.home() / ".ddt" / "terraform" / "airflow" / "gcp"
@@ -192,7 +191,7 @@ def _copy_module_to_work_dir(module_dir: Path, work_dir: Path) -> None:
             continue
         if item.is_file() and item.suffix == ".tf":
             shutil.copy2(item, work_dir / item.name)
-    templates_src = _DDT_PKG_DIR / "infra" / "modules" / "templates"
+    templates_src = _DDT_PKG_DIR / "infra" / "templates"
     templates_dst = work_dir / "templates"
     if templates_dst.exists():
         shutil.rmtree(templates_dst)
@@ -467,7 +466,7 @@ def _tf_apply_airflow_gcp(
     work_dir.mkdir(parents=True, exist_ok=True)
     _TF_PLUGIN_CACHE.mkdir(parents=True, exist_ok=True)
 
-    _copy_module_to_work_dir(_AIRFLOW_MODULE_DIR / "gcp", work_dir)
+    _copy_module_to_work_dir(_BATCH_MODULE_DIR / "gcp" / "airflow", work_dir)
 
     tfvars = {
         "image_uri": image_uri,

@@ -34,11 +34,15 @@ def _extract(record: dict, col: Column) -> Any:
     return _get_nested(record, col.path)
 
 
-def project(records: list[dict], schema: Schema) -> pd.DataFrame:
+def project(records: list[dict], schema: Schema | None) -> pd.DataFrame:
     """
     Apply transforms, extract declared columns only, cast types.
     Columns not listed in the schema are dropped.
+    When schema is None, all fields are selected as-is.
     """
+    if schema is None:
+        return pd.DataFrame(records)
+
     if not records:
         return pd.DataFrame(columns=[c.name for c in schema.columns])
 

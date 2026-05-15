@@ -129,7 +129,7 @@ class HttpSource(BaseModel):
     params: list[Param] = []
     response: Response = Response(format="json")
     rate_limit: RateLimit | None = None
-    schema_: Schema = Field(alias="schema")
+    schema_: Schema | None = Field(default=None, alias="schema")
 
 
 class PythonSource(BaseModel):
@@ -139,7 +139,7 @@ class PythonSource(BaseModel):
     module: str       # importable module path, e.g. "connectors.craigslist_apts"
     function: str     # function name; called as fn(dynamic_params) -> list[dict]
     params: list[Param] = []
-    schema_: Schema = Field(alias="schema")
+    schema_: Schema | None = Field(default=None, alias="schema")
 
 
 class PubSubSource(BaseModel):
@@ -147,7 +147,7 @@ class PubSubSource(BaseModel):
     model_config = {"populate_by_name": True}
     type: Literal["pubsub"]
     subscription: str   # full resource path: projects/<project>/subscriptions/<name>
-    schema_: Schema = Field(alias="schema")
+    schema_: Schema | None = Field(default=None, alias="schema")
 
 
 Source = Annotated[Union[HttpSource, PythonSource, PubSubSource], Field(discriminator="type")]

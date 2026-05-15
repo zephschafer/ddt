@@ -2,6 +2,8 @@
 
 A pipeline config supports the construction of a data request pattern. From it, ddt assembles the actual API calls, executes them at the cadence you define, projects the results through a schema, and writes them to the warehouse.
 
+### Example
+
 <table>
 <tr>
 <td valign="top" width="46%">

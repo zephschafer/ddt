@@ -39,6 +39,10 @@ source:
     - name: per_page
       type: integer
       value: 100
+    - name: since
+      type: string
+    - name: until
+      type: string
   schema:
     columns:
       - {name: sha,          path: sha,                type: string}
@@ -49,6 +53,12 @@ source:
 cadence:
   strategy: incremental
   primary_key: sha
+  iterate:
+    - type: date_range
+      params: [since, until]
+      start: "2024-01-01"
+      end: today
+      step: 30 days
 
 deployment:
   schedule: "0 8 * * *"

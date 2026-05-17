@@ -1,0 +1,33 @@
+name: Publish to PyPI
+
+on:
+  push:
+    branches: [main]
+    paths: [pyproject.toml]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if version changed
+        id: check
+        run: |
+          CURRENT=$(grep '^version' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          PREVIOUS=$(git show HEAD~1:pyproject.toml | grep '^version' | sed 's/version = "\(.*\)"/\1/')
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          [ "$CURRENT" != "$PREVIOUS" ] && echo "changed=true" >> $GITHUB_OUTPUT || echo "changed=false" >> $GITHUB_OUTPUT
+
+      - uses: astral-sh/setup-uv@v4
+        if: steps.check.outputs.changed == 'true'
+
+      - name: Build
+        if: steps.check.outputs.changed == 'true'
+        run: uv build
+
+      - name: Publish
+        if: steps.check.outputs.changed == 'true'
+        run: uv publish --token ${{ secrets.PYPI_API_TOKEN }}

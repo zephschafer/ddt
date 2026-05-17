@@ -36,7 +36,7 @@ uv run dcf query 'SELECT * FROM github.dcf_commits'
 
 ## Example
 
-### dcf collector:
+### dcf collector
 
 ```yaml
 name: dcf_commits

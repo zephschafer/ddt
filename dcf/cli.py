@@ -163,6 +163,55 @@ def validate(
 
 
 # ------------------------------------------------------------------ #
+# query                                                                #
+# ------------------------------------------------------------------ #
+
+@app.command()
+def query(
+    sql: str | None = typer.Argument(None, help="SQL query string"),
+    file: Path | None = typer.Option(None, "--file", "-f", help="Path to a .sql file"),
+):
+    """Run a SQL query against the warehouse and print results."""
+    from .warehouse_reader import query as run_query
+
+    if sql is None and file is None:
+        typer.echo("Error: provide a SQL string or --file <path>.sql", err=True)
+        raise typer.Exit(1)
+    if sql is not None and file is not None:
+        typer.echo("Error: provide either a SQL string or --file, not both", err=True)
+        raise typer.Exit(1)
+
+    if file is not None:
+        if not file.exists():
+            typer.echo(f"Error: file not found: {file}", err=True)
+            raise typer.Exit(1)
+        sql = file.read_text()
+
+    try:
+        rows = run_query(sql)
+    except Exception as e:
+        typer.echo(f"Query error: {e}", err=True)
+        raise typer.Exit(1)
+
+    if not rows:
+        typer.echo("0 rows")
+        return
+
+    from rich.console import Console
+    from rich.table import Table
+
+    table = Table(show_header=True, header_style="bold")
+    for col in rows[0].keys():
+        table.add_column(col)
+    for row in rows:
+        table.add_row(*[str(v) if v is not None else "" for v in row.values()])
+
+    Console().print(table)
+    noun = "row" if len(rows) == 1 else "rows"
+    typer.echo(f"{len(rows)} {noun}")
+
+
+# ------------------------------------------------------------------ #
 # gcp                                                                  #
 # ------------------------------------------------------------------ #
 

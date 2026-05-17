@@ -11,12 +11,6 @@ It works like this
 
 This guide walks you from zero to a working data pipeline. The example ingests your GitHub repositories.
 
-### Prerequisites
-
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/)
-- Java (required by PySpark — `java -version` to check)
-
 ### 1. Create a project
 
 dcf is a tool you depend on, not a repo you clone. Create a fresh directory:

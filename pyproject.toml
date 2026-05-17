@@ -1,8 +1,25 @@
 [project]
 name = "dcf-core"
-version = "0.1.4"
+version = "0.1.5"
 requires-python = ">=3.12"
+description = "YAML-driven data ingestion framework. Define collectors, dcf handles the rest."
+readme = "README.md"
 license = {file = "LICENSE"}
+authors = [
+  {name = "Zeph Schafer", email = "zephyr.schafer@gmail.com"},
+]
+keywords = ["data", "ingestion", "etl", "data-pipeline", "yaml", "airflow", "gcp"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Database",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
 dependencies = [
     "pyspark==4.0.2",
     "pandas",
@@ -20,6 +37,11 @@ dependencies = [
     "mcp>=1.0",
     "duckdb>=1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/zephschafer/dcf"
+Repository = "https://github.com/zephschafer/dcf"
+"Bug Tracker" = "https://github.com/zephschafer/dcf/issues"
 
 [project.scripts]
 dcf = "dcf.cli:app"

@@ -1,10 +1,10 @@
 # dcf
 
 [![PyPI](https://img.shields.io/pypi/v/dcf-core)](https://pypi.org/project/dcf-core/)
-[![Python](https://img.shields.io/pypi/pyversions/dcf-core)](https://pypi.org/project/dcf-core/)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://pypi.org/project/dcf-core/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/zephschafer/dcf/blob/main/LICENSE)
 
-YAML-driven data ingestion. Define a collector — dcf fetches, projects, and writes it to your warehouse.
+D.ata C.ollection F.ramework
 
 ```bash
 uvx --from dcf-core dcf init
@@ -14,14 +14,9 @@ uvx --from dcf-core dcf init
 
 ## How it works
 
-1. **Define** a collector in YAML — source, schema, cadence
+1. **Define** a data collector in YAML — source, schema, cadence
 2. **Run** it with `dcf run`
-3. Data lands in your local warehouse (Parquet + DuckDB) or a GCS-backed lake
-
-**Sources:** HTTP REST/CSV APIs · Python functions · Google Pub/Sub  
-**Write strategies:** `incremental` (upsert) · `append` · `full_refresh`  
-**Deploy targets:** local (Docker + Airflow) or GCP (Cloud Composer + Dataflow)  
-**Claude integration:** `dcf mcp setup-desktop` registers an MCP server so Claude can write and run collectors on your behalf.
+3. **Query** data from your data lake
 
 ---
 

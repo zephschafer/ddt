@@ -16,14 +16,14 @@ This guide walks you from zero to a working data pipeline. The example ingests y
 dcf is a tool you depend on, not a repo you clone. Create a fresh directory:
 
 ```bash
-mkdir my-data && cd my-data
+mkdir dcf-demo && cd dcf-demo
 ```
 
 **`pyproject.toml`:**
 
 ```toml
 [project]
-name = "my-data"
+name = "dcf-demo"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
@@ -37,13 +37,11 @@ package = false
 dcf = { git = "https://github.com/zephschafer/dcf.git" }    
 ```
 
-**`project.yml`** (gitignore this file — it holds your credentials):
+**`project.yml`**
 
 ```yaml
 catalog: local
 ```
-
-Set `gh_pat` to a [GitHub personal access token](https://github.com/settings/tokens) with `repo` scope.
 
 **`.gitignore`:**
 
@@ -96,8 +94,6 @@ deployment:
   schedule: "0 8 * * *"
 ```
 
-No credentials required — the dcf repo is public.
-
 ---
 
 ### 3. Validate
@@ -105,8 +101,6 @@ No credentials required — the dcf repo is public.
 ```bash
 uv run dcf validate dcf_commits
 ```
-
-> Validate checks the YAML structure but does not verify credentials.
 
 ---
 

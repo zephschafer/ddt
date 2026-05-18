@@ -50,7 +50,7 @@ dcf = "dcf.cli:app"
 include = ["dcf*"]
 
 [tool.setuptools.package-data]
-dcf = ["infra/**/*"]
+dcf = ["deploy/infra/**/*"]
 
 [tool.uv]
 package = true

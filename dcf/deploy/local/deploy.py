@@ -23,10 +23,11 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-_DCF_PKG_DIR = Path(__file__).parent
+_DEPLOY_DIR = Path(__file__).parent.parent  # dcf/deploy/
+_DCF_PKG_DIR = _DEPLOY_DIR.parent           # dcf/
 _DCF_REPO_ROOT = _DCF_PKG_DIR.parent
 
-_BATCH_COLLECTOR_MODULE = _DCF_PKG_DIR / "infra" / "modules" / "batch_collector"
+_BATCH_COLLECTOR_MODULE = _DEPLOY_DIR / "infra" / "modules" / "batch_collector"
 
 
 def _write_pyproject_toml(dest: Path) -> None:
@@ -286,7 +287,7 @@ def _copy_module_to_work_dir(module_dir: Path, work_dir: Path) -> None:
             continue
         if item.is_file() and item.suffix == ".tf":
             shutil.copy2(item, work_dir / item.name)
-    templates_src = _DCF_PKG_DIR / "infra" / "templates"
+    templates_src = _DEPLOY_DIR / "infra" /"templates"
     templates_dst = work_dir / "templates"
     if templates_dst.exists():
         shutil.rmtree(templates_dst)
@@ -407,7 +408,7 @@ def _airflow_build_context() -> Path:
 
 def _airflow_content_hash() -> str:
     """Hash of the airflow Dockerfile template to detect when Airflow image needs rebuild."""
-    template = _DCF_PKG_DIR / "infra" / "templates" / "airflow.Dockerfile.tftpl"
+    template = _DEPLOY_DIR / "infra" /"templates" / "airflow.Dockerfile.tftpl"
     return hashlib.sha256(template.read_bytes()).hexdigest()
 
 

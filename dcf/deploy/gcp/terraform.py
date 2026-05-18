@@ -10,7 +10,7 @@ from google.cloud import storage
 
 logger = logging.getLogger(__name__)
 
-_MODULE_DIR = Path(__file__).parent.parent / "infra" / "modules" / "gcp"
+_MODULE_DIR = Path(__file__).parent.parent / "infra" / "modules" / "batch_collector" / "gcp"
 _WORK_DIR   = Path.home() / ".dcf" / "terraform"
 
 

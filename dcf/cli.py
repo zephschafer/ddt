@@ -322,8 +322,8 @@ def gcp_setup(
     region: str = typer.Option(..., "--region", "-r", help="GCP region (e.g. us-central1)"),
 ):
     """Provision a GCP data lake."""
-    from .gcp import bootstrap, terraform
-    from .gcp.gcloud import get_credentials
+    from .deploy.gcp import bootstrap, terraform
+    from .deploy.gcp.gcloud import get_credentials
 
     cfg = _load_config()
     gcp = cfg.get("gcp", {})
@@ -393,8 +393,8 @@ def gcp_teardown(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ):
     """Destroy GCP lake resources (warehouse bucket, service account, Secret Manager secret)."""
-    from .gcp import bootstrap, terraform
-    from .gcp.gcloud import get_credentials
+    from .deploy.gcp import bootstrap, terraform
+    from .deploy.gcp.gcloud import get_credentials
 
     cfg = _load_config()
     gcp = cfg.get("gcp", {})
@@ -588,7 +588,7 @@ def _deploy_one(collector_name: str) -> None:
 
     try:
         if catalog == "local":
-            from . import local_deploy
+            from .deploy.local import deploy as local
             subscription = None
             if deploy_type == "streaming":
                 if not isinstance(collector.source, PubSubSource):
@@ -602,7 +602,7 @@ def _deploy_one(collector_name: str) -> None:
                 typer.echo(f"Deploying '{collector_name}' (local batch, Terraform + Airflow)...")
 
             cfg = _load_config()
-            state = local_deploy.deploy(
+            state = local.deploy(
                 collector_name=collector_name,
                 deployment=collector.deployment,
                 project_root=_project_root(),
@@ -628,7 +628,7 @@ def _deploy_one(collector_name: str) -> None:
 
         cfg, gcp = _require_gcp_config()
         if deploy_type == "streaming":
-            from .gcp import streaming_deploy
+            from .deploy.gcp import streaming_deploy
             assert isinstance(collector.source, PubSubSource)
             typer.echo(
                 f"Deploying '{collector_name}' (streaming, "
@@ -642,7 +642,7 @@ def _deploy_one(collector_name: str) -> None:
                 gcp_config=gcp,
             )
         else:
-            from .gcp import batch_deploy
+            from .deploy.gcp import batch_deploy
             typer.echo(f"Deploying '{collector_name}' (schedule: {collector.deployment.schedule})...")
             state = batch_deploy.deploy(
                 collector_name=collector_name,
@@ -698,8 +698,8 @@ def undeploy(
                 abort=True,
             )
         try:
-            from . import local_deploy
-            local_deploy.undeploy_all(deployments, _project_root())
+            from .deploy.local import deploy as local
+            local.undeploy_all(deployments, _project_root())
         except Exception as e:
             typer.echo(f"\nUndeploy failed: {e}", err=True)
             raise typer.Exit(1)
@@ -752,11 +752,11 @@ def undeploy(
     typer.echo(f"Undeploying '{collector_name}'...")
     try:
         if is_local:
-            from . import local_deploy
-            local_deploy.undeploy(collector_name, deployment, _project_root())
+            from .deploy.local import deploy as local
+            local.undeploy(collector_name, deployment, _project_root())
         elif deploy_type == "streaming":
             _, gcp = _require_gcp_config()
-            from .gcp import streaming_deploy
+            from .deploy.gcp import streaming_deploy
             streaming_deploy.undeploy(
                 collector_name=collector_name,
                 deployment=deployment,
@@ -764,7 +764,7 @@ def undeploy(
             )
         else:
             _, gcp = _require_gcp_config()
-            from .gcp import batch_deploy
+            from .deploy.gcp import batch_deploy
             batch_deploy.undeploy(
                 collector_name=collector_name,
                 deployment=deployment,
@@ -866,8 +866,8 @@ def publish(
         typer.echo(f"Error: message is not valid JSON: {e}", err=True)
         raise typer.Exit(1)
 
-    from . import local_deploy
-    local_deploy.publish(collector_name, state, message, count)
+    from .deploy.local import deploy as local
+    local.publish(collector_name, state, message, count)
 
     noun = "message" if count == 1 else "messages"
     typer.echo(f"Published {count} {noun} to topic '{state['kafka_topic']}'.")
